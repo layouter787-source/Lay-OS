@@ -4,6 +4,7 @@ use crate::{arch, console, gdt, user};
 
 const MAX_TASKS: usize = 4;
 const STACK_SIZE: usize = 16 * 1024;
+const PAGE_DIRECTORY: usize = 0x0010_2000;
 
 #[derive(Clone, Copy, PartialEq)]
 enum TaskState {
@@ -52,6 +53,8 @@ pub fn init() {
 
         let stack_start = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>() as usize;
         let stack_end = stack_start + STACK_SIZE;
+        let pde0 = (PAGE_DIRECTORY as *const u64).read_volatile() as usize;
+
         console::write("scheduler: stack start=");
         console::write_hex(stack_start);
         console::write(" end=");
@@ -60,6 +63,8 @@ pub fn init() {
         console::write_hex(arch::current_rsp());
         console::write(" cr3=");
         console::write_hex(arch::read_cr3());
+        console::write(" pde0=");
+        console::write_hex(pde0);
         console::write("\n");
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
@@ -86,14 +91,23 @@ unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
 
     sp -= 8;
     write(sp, gdt::USER_DATA as usize);
+    console::write("scheduler: ss saved\n");
+
     sp -= 8;
     write(sp, stack_top);
+    console::write("scheduler: rsp saved\n");
+
     sp -= 8;
     write(sp, 0x202);
+    console::write("scheduler: flags saved\n");
+
     sp -= 8;
     write(sp, gdt::USER_CODE as usize);
+    console::write("scheduler: cs saved\n");
+
     sp -= 8;
     write(sp, entry);
+    console::write("scheduler: rip saved\n");
 
     for _ in 0..11 {
         sp -= 8;
@@ -107,7 +121,7 @@ unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
 }
 
 unsafe fn write(address: usize, value: usize) {
-    (address as *mut usize).write(value);
+    (address as *mut usize).write_volatile(value);
 }
 
 #[no_mangle]
