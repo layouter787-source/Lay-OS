@@ -1,17 +1,12 @@
-//! Preemptive round-robin scheduler with a first user process.
+//! Preemptive round-robin scheduler with process lifecycle support.
 
-use crate::{console, gdt, user};
+use crate::{console, gdt, process, user};
 
 const MAX_TASKS: usize = 4;
 const STACK_SIZE: usize = 16 * 1024;
 
 #[derive(Clone, Copy, PartialEq)]
-enum TaskState {
-    Empty,
-    Ready,
-    Running,
-    Dead,
-}
+enum TaskState { Empty, Ready, Running, Dead }
 
 #[derive(Clone, Copy)]
 struct Task {
@@ -22,10 +17,7 @@ struct Task {
 }
 
 static mut TASKS: [Task; MAX_TASKS] = [Task {
-    id: 0,
-    state: TaskState::Empty,
-    context: 0,
-    user: false,
+    id: 0, state: TaskState::Empty, context: 0, user: false,
 }; MAX_TASKS];
 
 #[repr(align(16))]
@@ -34,57 +26,58 @@ struct TaskStacks([[u8; STACK_SIZE]; MAX_TASKS]);
 static mut STACKS: TaskStacks = TaskStacks([[0; STACK_SIZE]; MAX_TASKS]);
 static mut CURRENT: usize = 0;
 static mut TICKS: u64 = 0;
+static mut EXIT_REPORTED: bool = false;
 
 pub fn init() {
     unsafe {
         TASKS[0] = Task {
-            id: 0,
-            state: TaskState::Running,
-            context: 0,
+            id: 0, state: TaskState::Running,
+            context: build_kernel_context(kernel_idle),
             user: false,
         };
-
         CURRENT = 0;
         TICKS = 0;
+        EXIT_REPORTED = false;
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
-
         TASKS[1] = Task {
-            id: 1,
-            state: TaskState::Ready,
-            context,
-            user: true,
+            id: 1, state: TaskState::Ready, context, user: true,
         };
+        if process::create(1, 0) {
+            console::write("process: pid 1 created parent 0\n");
+        }
     }
 }
 
 unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
-    // Saved register order matches interrupt_stubs.asm.
-    // Above the 11 saved registers is the iretq frame:
-    // RIP, CS, RFLAGS, RSP, SS.
-    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[1])
-        .cast::<u8>()
-        .add(STACK_SIZE) as usize;
-    let mut sp = stack_top_addr;
-    sp &= !0xF;
+    build_context(&mut STACKS.0[1], stack_top, entry, gdt::USER_CODE, gdt::USER_DATA)
+}
 
-    sp -= 8;
-    write(sp, gdt::USER_DATA as usize); // SS
-    sp -= 8;
-    write(sp, stack_top); // RSP
-    sp -= 8;
-    write(sp, 0x202); // RFLAGS
-    sp -= 8;
-    write(sp, gdt::USER_CODE as usize); // CS
-    sp -= 8;
-    write(sp, entry); // RIP
+unsafe fn build_kernel_context(entry: extern "C" fn() -> !) -> usize {
+    let stack_top = core::ptr::addr_of_mut!(STACKS.0[0]).cast::<u8>().add(STACK_SIZE) as usize;
+    build_context(&mut STACKS.0[0], stack_top, entry as usize, gdt::KERNEL_CODE, gdt::KERNEL_DATA)
+}
 
-    for _ in 0..11 {
-        sp -= 8;
-        write(sp, 0);
-    }
-
+unsafe fn build_context(
+    _stack: &mut [u8; STACK_SIZE],
+    stack_top: usize,
+    entry: usize,
+    code: u16,
+    data: u16,
+) -> usize {
+    let mut sp = stack_top & !0xF;
+    sp -= 8; write(sp, data as usize);
+    sp -= 8; write(sp, stack_top);
+    sp -= 8; write(sp, 0x202);
+    sp -= 8; write(sp, code as usize);
+    sp -= 8; write(sp, entry);
+    for _ in 0..11 { sp -= 8; write(sp, 0); }
     sp
+}
+
+extern "C" fn kernel_idle() -> ! {
+    console::write("scheduler: returned to kernel context\n");
+    loop { unsafe { crate::arch::hlt() } }
 }
 
 unsafe fn write(address: usize, value: usize) {
@@ -94,17 +87,21 @@ unsafe fn write(address: usize, value: usize) {
 #[no_mangle]
 pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize {
     TASKS[CURRENT].context = saved_context;
-
     let previous = CURRENT;
+
     if TASKS[previous].state == TaskState::Running {
         TASKS[previous].state = TaskState::Ready;
+        process::set_ready(TASKS[previous].id);
     }
 
     for step in 1..=MAX_TASKS {
         let candidate = (previous + step) % MAX_TASKS;
-        if TASKS[candidate].state == TaskState::Ready {
+        if TASKS[candidate].state == TaskState::Ready
+            && (candidate == 0 || process::state(TASKS[candidate].id) != process::State::Exited)
+        {
             CURRENT = candidate;
             TASKS[candidate].state = TaskState::Running;
+            process::set_running(TASKS[candidate].id);
             return TASKS[candidate].context;
         }
     }
@@ -114,24 +111,40 @@ pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize 
     saved_context
 }
 
-pub fn tick(value: u64) {
+pub fn exit_current(status: u64) -> usize {
     unsafe {
-        TICKS = value;
+        let current = CURRENT;
+        process::exit(TASKS[current].id, status);
+        TASKS[current].state = TaskState::Dead;
+
+        for step in 1..=MAX_TASKS {
+            let candidate = (current + step) % MAX_TASKS;
+            if TASKS[candidate].state == TaskState::Ready
+                && (candidate == 0 || process::state(TASKS[candidate].id) != process::State::Exited)
+            {
+                CURRENT = candidate;
+                TASKS[candidate].state = TaskState::Running;
+                process::set_running(TASKS[candidate].id);
+                return TASKS[candidate].context;
+            }
+        }
+
+        if !EXIT_REPORTED {
+            EXIT_REPORTED = true;
+            console::write("scheduler: no runnable user process\n");
+        }
+        TASKS[0].state = TaskState::Running;
+        CURRENT = 0;
+        TASKS[0].context
     }
 }
 
-pub fn current_id() -> u32 {
-    unsafe { TASKS[CURRENT].id }
-}
-
-pub fn ticks() -> u64 {
-    unsafe { TICKS }
-}
+pub fn tick(value: u64) { unsafe { TICKS = value; } }
+pub fn current_id() -> u32 { unsafe { TASKS[CURRENT].id } }
+pub fn ticks() -> u64 { unsafe { TICKS } }
 
 pub fn describe() {
     unsafe {
-        if TASKS[1].user {
-            console::write("scheduler: user process 1 ready\n");
-        }
+        if TASKS[1].user { console::write("scheduler: user process 1 ready\n"); }
     }
 }
