@@ -1,4 +1,5 @@
 //! IDT, PIC, PIT and syscall entry.
+//! 70% lifecycle build: timer and syscall paths share the scheduler context.
 
 use crate::arch::{inb, lidt, outb, IdtPointer};
 
@@ -13,36 +14,21 @@ const PIT_CHANNEL0: u16 = 0x40;
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct IdtEntry {
-    offset_low: u16,
-    selector: u16,
-    options: u16,
-    offset_mid: u16,
-    offset_high: u32,
-    reserved: u32,
+    offset_low: u16, selector: u16, options: u16, offset_mid: u16,
+    offset_high: u32, reserved: u32,
 }
 
 impl IdtEntry {
     const EMPTY: Self = Self {
-        offset_low: 0,
-        selector: 0,
-        options: 0,
-        offset_mid: 0,
-        offset_high: 0,
-        reserved: 0,
+        offset_low: 0, selector: 0, options: 0, offset_mid: 0,
+        offset_high: 0, reserved: 0,
     };
-
-    fn new(handler: unsafe extern "C" fn()) -> Self {
-        Self::with_options(handler, 0x8E00)
-    }
-
+    fn new(handler: unsafe extern "C" fn()) -> Self { Self::with_options(handler, 0x8E00) }
     fn with_options(handler: unsafe extern "C" fn(), options: u16) -> Self {
         let address = handler as usize as u64;
         Self {
-            offset_low: address as u16,
-            selector: 0x18,
-            options,
-            offset_mid: (address >> 16) as u16,
-            offset_high: (address >> 32) as u32,
+            offset_low: address as u16, selector: 0x18, options,
+            offset_mid: (address >> 16) as u16, offset_high: (address >> 32) as u32,
             reserved: 0,
         }
     }
@@ -50,7 +36,6 @@ impl IdtEntry {
 
 #[repr(align(16))]
 struct Idt([IdtEntry; IDT_ENTRIES]);
-
 static mut IDT: Idt = Idt([IdtEntry::EMPTY; IDT_ENTRIES]);
 static mut TICKS: u64 = 0;
 
@@ -59,28 +44,40 @@ unsafe extern "C" {
     fn irq1_stub();
     fn exception_stub();
     fn syscall_stub();
+    fn general_protection_stub();
+    fn page_fault_stub();
+}
+
+#[no_mangle]
+pub extern "C" fn general_protection_handler() -> ! {
+    crate::console::write("LAY KERNEL: general protection fault\n");
+    loop { unsafe { crate::arch::hlt() } }
+}
+
+#[no_mangle]
+pub extern "C" fn page_fault_handler(error: u64) -> ! {
+    crate::console::write("LAY KERNEL: page fault @ ");
+    crate::console::write_hex(crate::arch::read_cr2());
+    crate::console::write(" err ");
+    crate::console::write_hex(error as usize);
+    crate::console::write("\n");
+    loop { unsafe { crate::arch::hlt() } }
 }
 
 #[no_mangle]
 pub extern "C" fn exception_handler() -> ! {
-    crate::console::write("LAY KERNEL: CPU exception\n");
-    loop {
-        unsafe { crate::arch::hlt() };
-    }
+    crate::console::write("LAY KERNEL: CPU exception\
+");
+    loop { unsafe { crate::arch::hlt() } }
 }
 
 #[no_mangle]
 pub extern "C" fn timer_handler(saved_context: usize) -> usize {
-    unsafe {
-        TICKS = TICKS.wrapping_add(1);
-    }
+    unsafe { TICKS = TICKS.wrapping_add(1); }
     let ticks = unsafe { TICKS };
     crate::scheduler::tick(ticks);
-
-    let next_context =
-        unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
-
-    unsafe { outb(PIC1, 0x20) };
+    let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
+    unsafe { outb(PIC1, 0x20); }
     next_context
 }
 
@@ -96,18 +93,15 @@ pub extern "C" fn keyboard_handler() {
 #[no_mangle]
 pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
     let regs = saved_context as *mut u64;
-
-    // Stub pushes RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
-    // Because the stack grows downward, indices are:
-    // R11, R10, R9, R8, RDI, RSI, RBP, RBX, RDX, RCX, RAX.
     let number = *regs.add(10);
     let arg1 = *regs.add(7);
     let arg2 = *regs.add(4);
-
     *regs.add(10) = crate::syscalls::dispatch(number, arg1, arg2);
 
     if number == crate::syscalls::SYS_YIELD {
         crate::scheduler::schedule_from_interrupt(saved_context)
+    } else if number == crate::syscalls::SYS_EXIT {
+        crate::scheduler::exit_current(arg2)
     } else {
         saved_context
     }
@@ -121,19 +115,17 @@ pub fn init() {
         IDT.0[10] = IdtEntry::new(exception_stub);
         IDT.0[11] = IdtEntry::new(exception_stub);
         IDT.0[12] = IdtEntry::new(exception_stub);
-        IDT.0[13] = IdtEntry::new(exception_stub);
-        IDT.0[14] = IdtEntry::new(exception_stub);
+        IDT.0[13] = IdtEntry::new(general_protection_stub);
+        IDT.0[14] = IdtEntry::new(page_fault_stub);
         IDT.0[17] = IdtEntry::new(exception_stub);
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
         IDT.0[0x80] = IdtEntry::with_options(syscall_stub, 0xEE00);
-
         let pointer = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
             base: core::ptr::addr_of!(IDT) as u64,
         };
         lidt(&pointer);
-
         remap_pic();
         init_pit(100);
     }
@@ -142,27 +134,14 @@ pub fn init() {
 unsafe fn remap_pic() {
     let master_mask = inb(PIC1_DATA);
     let slave_mask = inb(PIC2_DATA);
-
-    outb(PIC1, 0x11);
-    io_wait();
-    outb(PIC2, 0x11);
-    io_wait();
-
-    outb(PIC1_DATA, 0x20);
-    io_wait();
-    outb(PIC2_DATA, 0x28);
-    io_wait();
-
-    outb(PIC1_DATA, 0x04);
-    io_wait();
-    outb(PIC2_DATA, 0x02);
-    io_wait();
-
-    outb(PIC1_DATA, 0x01);
-    io_wait();
-    outb(PIC2_DATA, 0x01);
-    io_wait();
-
+    outb(PIC1, 0x11); io_wait();
+    outb(PIC2, 0x11); io_wait();
+    outb(PIC1_DATA, 0x20); io_wait();
+    outb(PIC2_DATA, 0x28); io_wait();
+    outb(PIC1_DATA, 0x04); io_wait();
+    outb(PIC2_DATA, 0x02); io_wait();
+    outb(PIC1_DATA, 0x01); io_wait();
+    outb(PIC2_DATA, 0x01); io_wait();
     outb(PIC1_DATA, master_mask & !0x03);
     outb(PIC2_DATA, slave_mask | 0xFF);
 }
@@ -174,6 +153,4 @@ unsafe fn init_pit(hz: u32) {
     outb(PIT_CHANNEL0, (divisor >> 8) as u8);
 }
 
-unsafe fn io_wait() {
-    outb(0x80, 0);
-}
+unsafe fn io_wait() { outb(0x80, 0); }

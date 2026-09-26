@@ -1,5 +1,5 @@
 //! First protected user address space.
-//! One executable page at 0x0040_0000 and one stack page below 0x0050_0000.
+//! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
 
 pub const USER_ENTRY: usize = 0x0040_0000;
 pub const USER_STACK_TOP: usize = 0x0050_0000;
@@ -13,48 +13,52 @@ const PTE_PRESENT: u64 = 1;
 const PTE_RW: u64 = 2;
 const PTE_USER: u64 = 4;
 
-// mov ax,0x2b; load DS/ES; getpid; write 'U'; yield; jump back.
-pub static USER_CODE: [u8; 36] = [
-    0x66, 0xB8, 0x2B, 0x00, 0x8E, 0xD8, 0x8E, 0xC0,
-    0xB8, 0x01, 0x00, 0x00, 0x00, 0xCD, 0x80,
-    0xBF, 0x55, 0x00, 0x00, 0x00,
-    0xB8, 0x05, 0x00, 0x00, 0x00, 0xCD, 0x80,
-    0xB8, 0x00, 0x00, 0x00, 0x00, 0xCD, 0x80,
-    0xEB, 0xDC,
-];
+// User process: getpid, print U/yield four times, then exit(0).
+const USER_CODE_LEN: usize = 33;
+
+fn user_byte(index: usize) -> u8 {
+    match index {
+        0 => 0xB9, 1 => 0x01, 2 => 0x00, 3 => 0x00, 4 => 0x00,
+        5 => 0xB8, 6 => 0x01, 7 => 0x00, 8 => 0x00, 9 => 0x00,
+        10 => 0xCD, 11 => 0x80,
+        12 => 0xBF, 13 => 0x55, 14 => 0x00, 15 => 0x00, 16 => 0x00,
+        17 => 0xB8, 18 => 0x05, 19 => 0x00, 20 => 0x00, 21 => 0x00,
+        22 => 0xCD, 23 => 0x80,
+        24 => 0x31, 25 => 0xFF, 26 => 0xB8, 27 => 0x06, 28 => 0x00, 29 => 0x00, 30 => 0x00,
+        31 => 0xCD, 32 => 0x80,
+        _ => 0,
+    }
+}
 
 pub fn init() {
+    crate::console::write("user: init begin\n");
     unsafe {
-        // Copy while the boot huge-page identity mapping is still writable.
-        let src = USER_CODE.as_ptr();
         let dst = USER_ENTRY as *mut u8;
-        for index in 0..USER_CODE.len() {
-            dst.add(index).write(src.add(index).read());
-        }
+        dst.write_volatile(0xCC);
+        crate::console::write("user: destination write ok\n");
 
-        // User access requires U/S=1 through every paging level.
+        for index in 0..USER_CODE_LEN {
+            dst.add(index).write_volatile(user_byte(index));
+        }
+        crate::console::write("user: code copied\n");
+
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
-
-        // Replace the 4-6 MiB huge-page mapping with a 4 KiB page table.
-        (PD as *mut u64)
-            .add(2)
-            .write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+        // 0x0040_0000 belongs to the third 2 MiB region: PD index 2.
+        (PD as *mut u64).add(2).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
 
         let pt = PT as *mut u64;
         for index in 0..512 {
             pt.add(index).write(0);
         }
 
-        // Executable user page is read/execute; no user write permission.
         pt.add(0).write((USER_ENTRY as u64) | PTE_PRESENT | PTE_USER);
-
-        // RSP starts at 0x00500000, so its first stack access is in 0x004FF000.
         pt.add(0x0FF).write(
-            ((USER_STACK_TOP - 0x1000) as u64)
-                | PTE_PRESENT
-                | PTE_RW
-                | PTE_USER,
+            ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
+
+        // Reload the active page-table root so the CPU drops the old huge-page TLB entry.
+        core::arch::asm!("mov cr3, {}", in(reg) PML4, options(nostack, preserves_flags));
+        crate::console::write("user: page tables ready\n");
     }
 }

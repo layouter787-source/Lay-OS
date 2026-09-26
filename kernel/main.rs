@@ -8,6 +8,7 @@ mod gdt;
 mod interrupts;
 mod ipc;
 mod memory;
+mod process;
 mod runtime;
 mod scheduler;
 mod shell;
@@ -34,6 +35,8 @@ pub extern "C" fn lay_kernel_main() -> ! {
     console::write("storage: block layer + LayFS ready\n");
     selftest::run();
 
+    process::init();
+
     user::init();
     console::write("memory: user address space ready\n");
 
@@ -49,15 +52,11 @@ pub extern "C" fn lay_kernel_main() -> ! {
     unsafe { arch::sti() };
     console::write("LAY OS KERNEL ONLINE\n");
 
-    loop {
-        unsafe { arch::hlt() }
-    }
+    loop { unsafe { arch::hlt() } }
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     console::write("LAY KERNEL: PANIC\n");
-    loop {
-        unsafe { arch::hlt() }
-    }
+    loop { unsafe { arch::hlt() } }
 }
