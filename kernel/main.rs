@@ -2,6 +2,7 @@
 #![no_main]
 
 mod arch;
+mod block;
 mod console;
 mod gdt;
 mod interrupts;
@@ -9,6 +10,8 @@ mod ipc;
 mod memory;
 mod runtime;
 mod scheduler;
+mod shell;
+mod vfs;
 mod syscalls;
 mod user;
 
