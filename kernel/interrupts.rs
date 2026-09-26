@@ -13,36 +13,21 @@ const PIT_CHANNEL0: u16 = 0x40;
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 struct IdtEntry {
-    offset_low: u16,
-    selector: u16,
-    options: u16,
-    offset_mid: u16,
-    offset_high: u32,
-    reserved: u32,
+    offset_low: u16, selector: u16, options: u16, offset_mid: u16,
+    offset_high: u32, reserved: u32,
 }
 
 impl IdtEntry {
     const EMPTY: Self = Self {
-        offset_low: 0,
-        selector: 0,
-        options: 0,
-        offset_mid: 0,
-        offset_high: 0,
-        reserved: 0,
+        offset_low: 0, selector: 0, options: 0, offset_mid: 0,
+        offset_high: 0, reserved: 0,
     };
-
-    fn new(handler: unsafe extern "C" fn()) -> Self {
-        Self::with_options(handler, 0x8E00)
-    }
-
+    fn new(handler: unsafe extern "C" fn()) -> Self { Self::with_options(handler, 0x8E00) }
     fn with_options(handler: unsafe extern "C" fn(), options: u16) -> Self {
         let address = handler as usize as u64;
         Self {
-            offset_low: address as u16,
-            selector: 0x18,
-            options,
-            offset_mid: (address >> 16) as u16,
-            offset_high: (address >> 32) as u32,
+            offset_low: address as u16, selector: 0x18, options,
+            offset_mid: (address >> 16) as u16, offset_high: (address >> 32) as u32,
             reserved: 0,
         }
     }
@@ -50,7 +35,6 @@ impl IdtEntry {
 
 #[repr(align(16))]
 struct Idt([IdtEntry; IDT_ENTRIES]);
-
 static mut IDT: Idt = Idt([IdtEntry::EMPTY; IDT_ENTRIES]);
 static mut TICKS: u64 = 0;
 
@@ -64,23 +48,16 @@ unsafe extern "C" {
 #[no_mangle]
 pub extern "C" fn exception_handler() -> ! {
     crate::console::write("LAY KERNEL: CPU exception\n");
-    loop {
-        unsafe { crate::arch::hlt() };
-    }
+    loop { unsafe { crate::arch::hlt() } }
 }
 
 #[no_mangle]
 pub extern "C" fn timer_handler(saved_context: usize) -> usize {
-    unsafe {
-        TICKS = TICKS.wrapping_add(1);
-    }
+    unsafe { TICKS = TICKS.wrapping_add(1); }
     let ticks = unsafe { TICKS };
     crate::scheduler::tick(ticks);
-
-    let next_context =
-        unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
-
-    unsafe { outb(PIC1, 0x20) };
+    let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
+    unsafe { outb(PIC1, 0x20); }
     next_context
 }
 
@@ -96,10 +73,6 @@ pub extern "C" fn keyboard_handler() {
 #[no_mangle]
 pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
     let regs = saved_context as *mut u64;
-
-    // Stub pushes RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
-    // Because the stack grows downward, indices are:
-    // R11, R10, R9, R8, RDI, RSI, RBP, RBX, RDX, RCX, RAX.
     let number = *regs.add(10);
     let arg1 = *regs.add(7);
     let arg2 = *regs.add(4);
@@ -108,6 +81,8 @@ pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
 
     if number == crate::syscalls::SYS_YIELD {
         crate::scheduler::schedule_from_interrupt(saved_context)
+    } else if number == crate::syscalls::SYS_EXIT {
+        crate::scheduler::exit_current(arg2)
     } else {
         saved_context
     }
@@ -127,13 +102,11 @@ pub fn init() {
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
         IDT.0[0x80] = IdtEntry::with_options(syscall_stub, 0xEE00);
-
         let pointer = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
             base: core::ptr::addr_of!(IDT) as u64,
         };
         lidt(&pointer);
-
         remap_pic();
         init_pit(100);
     }
@@ -142,27 +115,14 @@ pub fn init() {
 unsafe fn remap_pic() {
     let master_mask = inb(PIC1_DATA);
     let slave_mask = inb(PIC2_DATA);
-
-    outb(PIC1, 0x11);
-    io_wait();
-    outb(PIC2, 0x11);
-    io_wait();
-
-    outb(PIC1_DATA, 0x20);
-    io_wait();
-    outb(PIC2_DATA, 0x28);
-    io_wait();
-
-    outb(PIC1_DATA, 0x04);
-    io_wait();
-    outb(PIC2_DATA, 0x02);
-    io_wait();
-
-    outb(PIC1_DATA, 0x01);
-    io_wait();
-    outb(PIC2_DATA, 0x01);
-    io_wait();
-
+    outb(PIC1, 0x11); io_wait();
+    outb(PIC2, 0x11); io_wait();
+    outb(PIC1_DATA, 0x20); io_wait();
+    outb(PIC2_DATA, 0x28); io_wait();
+    outb(PIC1_DATA, 0x04); io_wait();
+    outb(PIC2_DATA, 0x02); io_wait();
+    outb(PIC1_DATA, 0x01); io_wait();
+    outb(PIC2_DATA, 0x01); io_wait();
     outb(PIC1_DATA, master_mask & !0x03);
     outb(PIC2_DATA, slave_mask | 0xFF);
 }
@@ -174,6 +134,4 @@ unsafe fn init_pit(hz: u32) {
     outb(PIT_CHANNEL0, (divisor >> 8) as u8);
 }
 
-unsafe fn io_wait() {
-    outb(0x80, 0);
-}
+unsafe fn io_wait() { outb(0x80, 0); }
