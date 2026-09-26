@@ -23,7 +23,7 @@ pub fn set_ready(_pid: u32) {}
 pub fn exit(pid: u32, status: u64) {
     if pid == 1 {
         crate::console::write("process: pid 1 exited status ");
-        write_u64(status);
+        if status == 0 { crate::console::write("0"); } else { crate::console::write("nonzero"); }
         crate::console::write("\n");
     }
 }
