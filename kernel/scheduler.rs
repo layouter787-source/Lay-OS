@@ -66,6 +66,7 @@ unsafe fn build_initial_context(stack_top: usize, entry: unsafe extern "C" fn() 
     let mut sp = stack_top & !0xF;
 
     sp -= 8; write(sp, 0); // ss
+    sp -= 8; write(sp, stack_top); // rsp
     sp -= 8; write(sp, 0x202); // rflags
     sp -= 8; write(sp, 0x18); // cs
     sp -= 8; write(sp, entry as usize); // rip
