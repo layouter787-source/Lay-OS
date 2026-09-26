@@ -59,6 +59,8 @@ pub fn init() {
             ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
 
+        // Reload the active page-table root so the CPU drops the old huge-page TLB entry.
+        core::arch::asm!("mov cr3, {}", in(reg) PML4, options(nostack, preserves_flags));
         crate::console::write("user: page tables ready\n");
     }
 }
