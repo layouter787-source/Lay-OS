@@ -4,11 +4,15 @@ bits 64
 global irq0_stub
 global irq1_stub
 global exception_stub
+global general_protection_stub
+global page_fault_stub
 global syscall_stub
 
 extern timer_handler
 extern keyboard_handler
 extern exception_handler
+extern general_protection_handler
+extern page_fault_handler
 extern syscall_handler
 
 irq0_stub:
