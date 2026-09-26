@@ -32,11 +32,15 @@ impl IdtEntry {
     };
 
     fn new(handler: unsafe extern "C" fn()) -> Self {
+        Self::new_with_options(handler, 0x8E00)
+    }
+
+    fn new_with_options(handler: unsafe extern "C" fn(), options: u16) -> Self {
         let address = handler as usize as u64;
         Self {
             offset_low: address as u16,
             selector: 0x18,
-            options: 0x8E00,
+            options,
             offset_mid: (address >> 16) as u16,
             offset_high: (address >> 32) as u32,
             reserved: 0,
@@ -87,7 +91,7 @@ pub fn init() {
         IDT.0[0] = IdtEntry::new(exception_stub);
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
-        IDT.0[0x80] = IdtEntry::new(syscall_stub);
+        IDT.0[0x80] = IdtEntry::new_with_options(syscall_stub, 0xEE00);
 
         let pointer = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
