@@ -44,6 +44,20 @@ unsafe extern "C" {
     fn irq1_stub();
     fn exception_stub();
     fn syscall_stub();
+    fn general_protection_stub();
+    fn page_fault_stub();
+}
+
+#[no_mangle]
+pub extern "C" fn general_protection_handler() -> ! {
+    crate::console::write("LAY KERNEL: general protection fault\n");
+    loop { unsafe { crate::arch::hlt() } }
+}
+
+#[no_mangle]
+pub extern "C" fn page_fault_handler() -> ! {
+    crate::console::write("LAY KERNEL: page fault\n");
+    loop { unsafe { crate::arch::hlt() } }
 }
 
 #[no_mangle]
@@ -98,8 +112,8 @@ pub fn init() {
         IDT.0[10] = IdtEntry::new(exception_stub);
         IDT.0[11] = IdtEntry::new(exception_stub);
         IDT.0[12] = IdtEntry::new(exception_stub);
-        IDT.0[13] = IdtEntry::new(exception_stub);
-        IDT.0[14] = IdtEntry::new(exception_stub);
+        IDT.0[13] = IdtEntry::new(general_protection_stub);
+        IDT.0[14] = IdtEntry::new(page_fault_stub);
         IDT.0[17] = IdtEntry::new(exception_stub);
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
