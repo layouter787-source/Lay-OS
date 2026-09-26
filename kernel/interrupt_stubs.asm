@@ -21,7 +21,9 @@ irq0_stub:
     push r9
     push r10
     push r11
+    mov rdi, rsp
     call timer_handler
+    mov rsp, rax
     pop r11
     pop r10
     pop r9
