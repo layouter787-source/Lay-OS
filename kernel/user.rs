@@ -58,7 +58,6 @@ pub fn init() {
             ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
 
-        crate::arch::reload_cr3();
         crate::console::write("user: page tables ready\n");
     }
 }
