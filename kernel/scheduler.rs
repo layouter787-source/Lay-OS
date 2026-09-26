@@ -24,7 +24,8 @@ static mut EXIT_REPORTED: bool = false;
 
 pub fn init() {
     unsafe {
-        TASKS[0] = Task { id: 0, state: TaskState::Running, context: 0, user: false };
+        let kernel_context = build_kernel_context();
+        TASKS[0] = Task { id: 0, state: TaskState::Running, context: kernel_context, user: false };
         CURRENT = 0;
         TICKS = 0;
         EXIT_REPORTED = false;
@@ -47,6 +48,24 @@ pub fn init() {
             console::write("scheduler: process 1 linked\n");
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn kernel_resume() -> ! {
+    console::write("scheduler: kernel resumed after process exit\\n");
+    loop { unsafe { crate::arch::hlt() } }
+}
+
+unsafe fn build_kernel_context() -> usize {
+    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[0]).cast::<u8>().add(STACK_SIZE) as usize;
+    let mut sp = stack_top_addr & !0xF;
+    sp -= 8; write(sp, gdt::KERNEL_DATA as usize);
+    sp -= 8; write(sp, stack_top_addr);
+    sp -= 8; write(sp, 0x202);
+    sp -= 8; write(sp, gdt::KERNEL_CODE as usize);
+    sp -= 8; write(sp, kernel_resume as usize);
+    for _ in 0..11 { sp -= 8; write(sp, 0); }
+    sp
 }
 
 unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
