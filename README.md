@@ -15,32 +15,31 @@ Sistema operacional próprio, desenvolvido do zero.
 - Inicialização via firmware/BIOS no protótipo inicial
 - Kernel freestanding
 
-## Estrutura inicial
-- `boot/` — código de inicialização
-- `kernel/` — núcleo do sistema
-- `arch/x86_64/` — código específico da arquitetura
-- `docs/` — decisões e arquitetura
+## Estado atual — marco de 40%
+- Boot BIOS x86_64 em long mode
+- Carregamento de kernel em janela de desenvolvimento de 1024 setores
+- Page tables de identidade para os primeiros 1 GiB
+- GDT própria com segmentos de kernel, user mode e TSS
+- IDT, PIC e PIT a 100 Hz
+- Scheduler round-robin preemptivo
+- Context switch restaurável
+- Allocator inicial de páginas
+- IPC por mailbox
+- Syscalls via int 0x80
+- Primeiro processo em Ring 3
+- Código e stack de user mode com páginas marcadas como U/S
+- Console VGA + porta de debug do QEMU
+- CI com build e smoke test de execução
 
-A implementação começará pelo primeiro marco: firmware → bootloader Lay → entrada do kernel → execução segura do kernel.
+## Próximas camadas
+1. Gerenciamento real de processos, threads e address spaces
+2. Page-frame allocator baseado no mapa de memória do firmware
+3. VFS e LayFS
+4. Drivers de armazenamento e entrada
+5. Rede TCP/IP e sockets
+6. Graphics/compositor/Lay UI
+7. Shell e serviços do sistema
+8. Formato .layapp, SDK e pacote de aplicativos
+9. Atualizações, recovery e suporte ARM64
 
-## Estado atual
-
-O primeiro núcleo funcional já possui:
-- entrada x86_64 em long mode
-- GDT controlada pelo kernel
-- IDT com exceção e IRQs
-- PIC remapeado
-- PIT a 100 Hz
-- console VGA
-- alocador físico inicial de páginas
-- base de scheduler orientado por ticks
-
-### Próximas camadas
-1. allocator de memória dinâmica
-2. gerenciamento de processos/threads
-3. troca de contexto preemptiva
-4. syscalls e IPC
-5. driver de armazenamento
-6. filesystem LayFS
-7. drivers de entrada e vídeo
-8. compositor e Lay UI
+O percentual é um marcador de progresso do projeto, não uma alegação de que o sistema já é um desktop completo.
