@@ -5,6 +5,8 @@ mod arch;
 mod console;
 mod gdt;
 mod interrupts;
+mod ipc;
+mod syscalls;
 mod memory;
 mod scheduler;
 
@@ -22,7 +24,9 @@ pub extern "C" fn lay_kernel_main() -> ! {
     console::write("memory: allocator ready\n");
 
     scheduler::init();
+    ipc::init();
     console::write("scheduler: ready\n");
+    console::write("ipc: mailbox ready\n");
 
     interrupts::init();
     console::write("interrupts: idt/pic/pit ready\n");
