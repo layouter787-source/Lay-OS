@@ -32,6 +32,22 @@ pub unsafe fn hlt() {
     core::arch::asm!("hlt", options(nomem, nostack));
 }
 
+#[inline(always)]
+pub fn current_rsp() -> usize {
+    let value: usize;
+    unsafe {
+        core::arch::asm!("mov {}, rsp", out(reg) value, options(nomem, nostack, preserves_flags));
+    }
+    value
+}
+
+#[inline(always)]
+pub unsafe fn read_cr3() -> usize {
+    let value: usize;
+    core::arch::asm!("mov {}, cr3", out(reg) value, options(nomem, nostack, preserves_flags));
+    value
+}
+
 #[repr(C, packed)]
 pub struct IdtPointer {
     pub limit: u16,
