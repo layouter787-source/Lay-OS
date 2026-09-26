@@ -67,8 +67,8 @@ pub extern "C" fn exception_handler() -> ! {
 
 #[no_mangle]
 pub extern "C" fn timer_handler() {
-    TICKS = TICKS.wrapping_add(1);
-    crate::scheduler::tick(TICKS);
+    unsafe { TICKS = TICKS.wrapping_add(1); }
+    let ticks = unsafe { TICKS };\n    crate::scheduler::tick(ticks);
     outb(PIC1, 0x20);
 }
 
