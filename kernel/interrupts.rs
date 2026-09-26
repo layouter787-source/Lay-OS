@@ -54,6 +54,7 @@ unsafe extern "C" {
     fn irq0_stub();
     fn irq1_stub();
     fn exception_stub();
+    fn syscall_stub();
 }
 
 #[no_mangle]
@@ -86,6 +87,7 @@ pub fn init() {
         IDT.0[0] = IdtEntry::new(exception_stub);
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
+        IDT.0[0x80] = IdtEntry::new(syscall_stub);
 
         let pointer = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
@@ -95,6 +97,16 @@ pub fn init() {
         remap_pic();
         init_pit(100);
     }
+}
+
+
+#[no_mangle]
+pub unsafe extern "C" fn syscall_handler(saved_context: usize) {
+    let regs = saved_context as *mut u64;
+    let number = *regs.add(0);
+    let arg1 = *regs.add(3);
+    let arg2 = *regs.add(6);
+    *regs.add(0) = crate::syscalls::dispatch(number, arg1, arg2);
 }
 
 unsafe fn remap_pic() {
