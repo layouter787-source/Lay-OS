@@ -35,17 +35,6 @@ pub fn init() {
         EXIT_REPORTED = false;
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
-        console::write("scheduler: user context ");
-        console::write_hex(context);
-        console::write(" rip ");
-        console::write_hex(*(context as *const usize).add(11));
-        console::write(" cs ");
-        console::write_hex(*(context as *const usize).add(12));
-        console::write(" rsp ");
-        console::write_hex(*(context as *const usize).add(14));
-        console::write(" ss ");
-        console::write_hex(*(context as *const usize).add(15));
-        console::write("\n");
         TASKS[1] = Task { id: 1, state: TaskState::Ready, context, user: true };
 
         if process::create(1, 0) {
@@ -56,7 +45,7 @@ pub fn init() {
 
 #[no_mangle]
 pub extern "C" fn kernel_resume() -> ! {
-    console::write("scheduler: kernel resumed after process exit\\n");
+    console::write("scheduler: kernel resumed after process exit\n");
     loop { unsafe { crate::arch::hlt() } }
 }
 
