@@ -42,9 +42,8 @@ pub fn init() {
         let dst = USER_ENTRY as *mut u8;
         dst.write_volatile(0xCC);
         crate::console::write("user: destination write ok\n");
-        let src = USER_CODE.as_ptr();
-        for index in 0..USER_CODE.len() {
-            dst.add(index).write(src.add(index).read());
+        for index in 0..USER_CODE_LEN {
+            dst.add(index).write_volatile(user_byte(index));
         }
 
         crate::console::write("user: code copied\n");
