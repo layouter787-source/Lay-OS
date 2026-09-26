@@ -36,6 +36,8 @@ static mut CURRENT: usize = 0;
 static mut TICKS: u64 = 0;
 
 pub fn init() {
+    console::write("scheduler: init begin\n");
+
     unsafe {
         TASKS[0] = Task {
             id: 0,
@@ -46,34 +48,36 @@ pub fn init() {
 
         CURRENT = 0;
         TICKS = 0;
+        console::write("scheduler: kernel task ready\n");
+
+        let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
+        console::write("scheduler: user context built\n");
 
         TASKS[1] = Task {
             id: 1,
             state: TaskState::Ready,
-            context: build_user_context(user::USER_STACK_TOP, user::USER_ENTRY),
+            context,
             user: true,
         };
+        console::write("scheduler: task table ready\n");
     }
 }
 
 unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
-    // Saved register order must match interrupt_stubs.asm.
-    // Above the 11 saved registers is the iretq frame:
-    // RIP, CS, RFLAGS, RSP, SS.
-    let mut sp = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>()
-        .add(STACK_SIZE) as usize;
+    let stack_start = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>();
+    let mut sp = stack_start.add(STACK_SIZE) as usize;
     sp &= !0xF;
 
     sp -= 8;
-    write(sp, gdt::USER_DATA as usize); // SS
+    write(sp, gdt::USER_DATA as usize);
     sp -= 8;
-    write(sp, stack_top); // RSP
+    write(sp, stack_top);
     sp -= 8;
-    write(sp, 0x202); // RFLAGS
+    write(sp, 0x202);
     sp -= 8;
-    write(sp, gdt::USER_CODE as usize); // CS
+    write(sp, gdt::USER_CODE as usize);
     sp -= 8;
-    write(sp, entry); // RIP
+    write(sp, entry);
 
     for _ in 0..11 {
         sp -= 8;
