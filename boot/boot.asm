@@ -55,15 +55,15 @@ protected_mode:
     mov es, ax
     mov ss, ax
 
-    mov edi, 0x7000
+    mov edi, 0x20000
     xor eax, eax
     mov ecx, 0x3000 / 4
     rep stosd
 
-    mov dword [0x7000], 0x8000 | 0x3
-    mov dword [0x8000], 0x9000 | 0x3
+    mov dword [0x20000], 0x21000 | 0x3
+    mov dword [0x21000], 0x22000 | 0x3
 
-    mov edi, 0x9000
+    mov edi, 0x22000
     mov eax, 0x83
     mov ecx, 512
 .map_pd:
@@ -72,7 +72,7 @@ protected_mode:
     add edi, 8
     loop .map_pd
 
-    mov eax, 0x7000
+    mov eax, 0x20000
     mov cr3, eax
 
     mov eax, cr4
@@ -106,7 +106,7 @@ boot_drive db 0
 dap:
     db 0x10
     db 0
-    dw 128
+    dw 127
     dw 0x1000
     dw 0
     dd 1
