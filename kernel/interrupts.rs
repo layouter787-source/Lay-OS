@@ -102,11 +102,15 @@ pub extern "C" fn keyboard_handler() {
 #[no_mangle]
 pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
     let regs = saved_context as *mut u64;
-    let number = *regs.add(0);
-    let arg1 = *regs.add(3);
-    let arg2 = *regs.add(6);
+    // interrupt_stubs.asm pushes registers in this order:
+    // RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
+    // Since the stack grows downward, the saved frame is:
+    // R11, R10, R9, R8, RDI, RSI, RBP, RBX, RDX, RCX, RAX.
+    let number = *regs.add(10);
+    let arg1 = *regs.add(7);
+    let arg2 = *regs.add(4);
 
-    *regs.add(0) = crate::syscalls::dispatch(number, arg1, arg2);
+    *regs.add(10) = crate::syscalls::dispatch(number, arg1, arg2);
 
     if number == crate::syscalls::SYS_YIELD {
         crate::scheduler::schedule_from_interrupt(saved_context)
