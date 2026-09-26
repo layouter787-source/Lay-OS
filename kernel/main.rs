@@ -6,9 +6,11 @@ mod console;
 mod gdt;
 mod interrupts;
 mod ipc;
-mod syscalls;
 mod memory;
+mod runtime;
 mod scheduler;
+mod syscalls;
+mod user;
 
 use core::panic::PanicInfo;
 
@@ -18,25 +20,28 @@ pub extern "C" fn lay_kernel_main() -> ! {
     console::write("kernel: starting core services...\n");
 
     gdt::init();
-    console::write("gdt: ok\n");
+    console::write("gdt: kernel + user + tss ok\n");
 
     memory::init();
-    console::write("memory: allocator ready\n");
+    console::write("memory: page allocator ready\n");
+
+    user::init();
+    console::write("memory: user address space ready\n");
 
     scheduler::init();
+    scheduler::describe();
+
     ipc::init();
-    console::write("scheduler: ready\n");
     console::write("ipc: mailbox ready\n");
 
     interrupts::init();
     console::write("interrupts: idt/pic/pit ready\n");
 
-    unsafe { arch::sti(); }
-    console::write("kernel: interrupts enabled\n");
+    unsafe { arch::sti() };
     console::write("LAY OS KERNEL ONLINE\n");
 
     loop {
-        unsafe { arch::hlt(); }
+        unsafe { arch::hlt() }
     }
 }
 
@@ -44,6 +49,6 @@ pub extern "C" fn lay_kernel_main() -> ! {
 fn panic(_info: &PanicInfo) -> ! {
     console::write("LAY KERNEL: PANIC\n");
     loop {
-        unsafe { arch::hlt(); }
+        unsafe { arch::hlt() }
     }
 }

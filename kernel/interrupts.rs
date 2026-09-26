@@ -1,12 +1,12 @@
-//! Interrupt Descriptor Table and hardware interrupt handling.
+//! IDT, PIC, PIT and syscall entry.
 
 use crate::arch::{inb, lidt, outb, IdtPointer};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1: u16 = 0x20;
 const PIC2: u16 = 0xA0;
-const PIC1_DATA: u16 = PIC1 + 1;
-const PIC2_DATA: u16 = PIC2 + 1;
+const PIC1_DATA: u16 = 0x21;
+const PIC2_DATA: u16 = 0xA1;
 const PIT_COMMAND: u16 = 0x43;
 const PIT_CHANNEL0: u16 = 0x40;
 
@@ -32,10 +32,10 @@ impl IdtEntry {
     };
 
     fn new(handler: unsafe extern "C" fn()) -> Self {
-        Self::new_with_options(handler, 0x8E00)
+        Self::with_options(handler, 0x8E00)
     }
 
-    fn new_with_options(handler: unsafe extern "C" fn(), options: u16) -> Self {
+    fn with_options(handler: unsafe extern "C" fn(), options: u16) -> Self {
         let address = handler as usize as u64;
         Self {
             offset_low: address as u16,
@@ -63,54 +63,79 @@ unsafe extern "C" {
 
 #[no_mangle]
 pub extern "C" fn exception_handler() -> ! {
-    crate::console::write("LAY KERNEL: CPU exception
-");
+    crate::console::write("LAY KERNEL: CPU exception\n");
     loop {
-        crate::arch::hlt();
+        unsafe { crate::arch::hlt() };
     }
 }
 
 #[no_mangle]
 pub extern "C" fn timer_handler(saved_context: usize) -> usize {
-    unsafe { TICKS = TICKS.wrapping_add(1); }
+    unsafe {
+        TICKS = TICKS.wrapping_add(1);
+    }
     let ticks = unsafe { TICKS };
     crate::scheduler::tick(ticks);
-    let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
-    outb(PIC1, 0x20);
+
+    let next_context =
+        unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
+
+    unsafe { outb(PIC1, 0x20) };
     next_context
 }
 
 #[no_mangle]
 pub extern "C" fn keyboard_handler() {
-    let _scancode = inb(0x60);
-    outb(PIC1, 0x20);
+    unsafe {
+        let _ = inb(0x60);
+        outb(PIC1, 0x20);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
+    let regs = saved_context as *mut u64;
+
+    // Stub pushes RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
+    // Because the stack grows downward, indices are:
+    // R11, R10, R9, R8, RDI, RSI, RBP, RBX, RDX, RCX, RAX.
+    let number = *regs.add(10);
+    let arg1 = *regs.add(7);
+    let arg2 = *regs.add(4);
+
+    *regs.add(10) = crate::syscalls::dispatch(number, arg1, arg2);
+
+    if number == crate::syscalls::SYS_YIELD {
+        crate::scheduler::schedule_from_interrupt(saved_context)
+    } else {
+        saved_context
+    }
 }
 
 pub fn init() {
     unsafe {
         IDT.0[0] = IdtEntry::new(exception_stub);
+        IDT.0[6] = IdtEntry::new(exception_stub);
+        IDT.0[8] = IdtEntry::new(exception_stub);
+        IDT.0[10] = IdtEntry::new(exception_stub);
+        IDT.0[11] = IdtEntry::new(exception_stub);
+        IDT.0[12] = IdtEntry::new(exception_stub);
+        IDT.0[13] = IdtEntry::new(exception_stub);
+        IDT.0[14] = IdtEntry::new(exception_stub);
+        IDT.0[17] = IdtEntry::new(exception_stub);
         IDT.0[32] = IdtEntry::new(irq0_stub);
         IDT.0[33] = IdtEntry::new(irq1_stub);
-        IDT.0[0x80] = IdtEntry::new_with_options(syscall_stub, 0xEE00);
+        IDT.0[0x80] = IdtEntry::with_options(syscall_stub, 0xEE00);
 
         let pointer = IdtPointer {
             limit: (core::mem::size_of::<Idt>() - 1) as u16,
             base: core::ptr::addr_of!(IDT) as u64,
         };
         lidt(&pointer);
+
         remap_pic();
         init_pit(100);
     }
-}
-
-
-#[no_mangle]
-pub unsafe extern "C" fn syscall_handler(saved_context: usize) {
-    let regs = saved_context as *mut u64;
-    let number = *regs.add(0);
-    let arg1 = *regs.add(3);
-    let arg2 = *regs.add(6);
-    *regs.add(0) = crate::syscalls::dispatch(number, arg1, arg2);
 }
 
 unsafe fn remap_pic() {

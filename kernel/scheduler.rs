@@ -1,6 +1,6 @@
-//! Preemptive round-robin scheduler with kernel context frames.
+//! Preemptive round-robin scheduler with a first user process.
 
-use crate::console;
+use crate::{console, gdt, user};
 
 const MAX_TASKS: usize = 4;
 const STACK_SIZE: usize = 16 * 1024;
@@ -18,12 +18,14 @@ struct Task {
     id: u32,
     state: TaskState,
     context: usize,
+    user: bool,
 }
 
 static mut TASKS: [Task; MAX_TASKS] = [Task {
     id: 0,
     state: TaskState::Empty,
     context: 0,
+    user: false,
 }; MAX_TASKS];
 
 #[repr(align(16))]
@@ -39,37 +41,43 @@ pub fn init() {
             id: 0,
             state: TaskState::Running,
             context: 0,
+            user: false,
         };
+
         CURRENT = 0;
         TICKS = 0;
 
-        create_task(1);
+        let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
+
+        TASKS[1] = Task {
+            id: 1,
+            state: TaskState::Ready,
+            context,
+            user: true,
+        };
     }
 }
 
-unsafe fn create_task(id: u32) {
-    let slot = 1;
-    let stack_top = core::ptr::addr_of_mut!(STACKS.0[slot]) as *mut u8;
-    let stack_top = stack_top.add(STACK_SIZE) as usize;
-    let context = build_initial_context(stack_top, task_trampoline);
+unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
+    // Saved register order matches interrupt_stubs.asm.
+    // Above the 11 saved registers is the iretq frame:
+    // RIP, CS, RFLAGS, RSP, SS.
+    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[1])
+        .cast::<u8>()
+        .add(STACK_SIZE) as usize;
+    let mut sp = stack_top_addr;
+    sp &= !0xF;
 
-    TASKS[slot] = Task {
-        id,
-        state: TaskState::Ready,
-        context,
-    };
-}
-
-unsafe fn build_initial_context(stack_top: usize, entry: unsafe extern "C" fn() -> !) -> usize {
-    // This layout exactly matches the registers pushed by irq0_stub,
-    // followed by the CPU interrupt-return frame consumed by iretq.
-    let mut sp = stack_top & !0xF;
-
-    sp -= 8; write(sp, 0); // ss
-    sp -= 8; write(sp, stack_top); // rsp
-    sp -= 8; write(sp, 0x202); // rflags
-    sp -= 8; write(sp, 0x18); // cs
-    sp -= 8; write(sp, entry as usize); // rip
+    sp -= 8;
+    write(sp, gdt::USER_DATA as usize); // SS
+    sp -= 8;
+    write(sp, stack_top); // RSP
+    sp -= 8;
+    write(sp, 0x202); // RFLAGS
+    sp -= 8;
+    write(sp, gdt::USER_CODE as usize); // CS
+    sp -= 8;
+    write(sp, entry); // RIP
 
     for _ in 0..11 {
         sp -= 8;
@@ -80,7 +88,7 @@ unsafe fn build_initial_context(stack_top: usize, entry: unsafe extern "C" fn() 
 }
 
 unsafe fn write(address: usize, value: usize) {
-    (address as *mut usize).write(value);
+    (address as *mut usize).write_volatile(value);
 }
 
 #[no_mangle]
@@ -106,14 +114,10 @@ pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize 
     saved_context
 }
 
-pub fn tick(ticks: u64) {
+pub fn tick(value: u64) {
     unsafe {
-        TICKS = ticks;
+        TICKS = value;
     }
-}
-
-pub fn yield_now() {
-    // Voluntary yielding is provided by the timer-driven preemptive path.
 }
 
 pub fn current_id() -> u32 {
@@ -124,12 +128,10 @@ pub fn ticks() -> u64 {
     unsafe { TICKS }
 }
 
-unsafe extern "C" fn task_trampoline() -> ! {
-    console::write("scheduler: task 1 started\n");
-
-    loop {
-        for _ in 0..1_000_000 {
-            core::hint::spin_loop();
+pub fn describe() {
+    unsafe {
+        if TASKS[1].user {
+            console::write("scheduler: user process 1 ready\n");
         }
     }
 }

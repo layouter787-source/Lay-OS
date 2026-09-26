@@ -1,7 +1,8 @@
-//! Very small physical-frame/bump allocator for the first kernel milestone.
+//! Initial physical page allocator.
+//! Reserved boot structures live below 0x0020_0000.
 
-const HEAP_START: usize = 0x0010_0000;
-const HEAP_END: usize = 0x0100_0000;
+const HEAP_START: usize = 0x0020_0000;
+const HEAP_END: usize = 0x0200_0000;
 const PAGE_SIZE: usize = 4096;
 
 static mut NEXT: usize = HEAP_START;

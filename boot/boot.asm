@@ -1,6 +1,6 @@
-; Lay OS — x86_64 boot sector
-; First-stage BIOS loader for the initial development image.
-
+; Lay OS x86_64 BIOS loader.
+; Kernel is loaded at 0x20000, safely away from the BIOS boot sector at 0x7C00.
+; A fixed 1024-sector development window is read in <=127-sector transfers.
 bits 16
 org 0x7C00
 
@@ -13,23 +13,55 @@ start:
     mov sp, 0x7C00
 
     mov [boot_drive], dl
+    mov word [remaining], 1024
+    mov dword [dest_phys], 0x20000
+    mov dword [current_lba], 1
+    mov dword [current_lba+4], 0
 
-    ; Development image reserves the first 128 sectors after the boot sector
-    ; for the kernel image.
+load_loop:
+    mov ax, [remaining]
+    cmp ax, 127
+    jbe .count_ready
+    mov ax, 127
+.count_ready:
+    mov [dap_count], ax
+
+    mov eax, [dest_phys]
+    shr eax, 4
+    mov [dap_segment], ax
+
+    mov eax, [current_lba]
+    mov [dap_lba], eax
+    mov eax, [current_lba+4]
+    mov [dap_lba+4], eax
+
     mov si, dap
     mov ah, 0x42
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
 
+    mov dx, [dap_count]
+    sub [remaining], dx
+
+    movzx eax, word [dap_count]
+    add dword [current_lba], eax
+    adc dword [current_lba+4], 0
+
+    shl eax, 9
+    add dword [dest_phys], eax
+
+    cmp word [remaining], 0
+    jne load_loop
+
     in al, 0x92
-    or al, 00000010b
+    or al, 0x02
     out 0x92, al
 
     lgdt [gdt_descriptor]
 
     mov eax, cr0
-    or eax, 1
+    or eax, 0x01
     mov cr0, eax
 
     jmp 0x08:protected_mode
@@ -55,24 +87,25 @@ protected_mode:
     mov es, ax
     mov ss, ax
 
-    mov edi, 0x20000
+    ; Page tables live at 1 MiB, above the kernel load window.
+    mov edi, 0x100000
     xor eax, eax
     mov ecx, 0x3000 / 4
     rep stosd
 
-    mov dword [0x20000], 0x21000 | 0x3
-    mov dword [0x21000], 0x22000 | 0x3
+    mov dword [0x100000], 0x101000 | 0x7
+    mov dword [0x101000], 0x102000 | 0x7
 
-    mov edi, 0x22000
-    mov eax, 0x83
+    mov edi, 0x102000
+    mov eax, 0x00000083
     mov ecx, 512
 .map_pd:
     mov [edi], eax
-    add eax, 0x200000
+    add eax, 0x00200000
     add edi, 8
     loop .map_pd
 
-    mov eax, 0x20000
+    mov eax, 0x100000
     mov cr3, eax
 
     mov eax, cr4
@@ -97,20 +130,22 @@ long_mode:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov rsp, 0x90000
-
-    jmp 0x1000
+    jmp 0x20000
 
 boot_drive db 0
+remaining dw 0
+dest_phys dd 0
+current_lba dq 0
 
 dap:
-    db 0x10
-    db 0
+    db 0x10, 0
+dap_count:
     dw 127
-    dw 0x1000
     dw 0
-    dd 1
-    dd 0
+dap_segment:
+    dw 0
+dap_lba:
+    dq 1
 
 error_message db "LAY BOOT: disk read failed", 0
 
