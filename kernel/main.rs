@@ -11,6 +11,7 @@ mod memory;
 mod runtime;
 mod scheduler;
 mod shell;
+mod selftest;
 mod vfs;
 mod syscalls;
 mod user;
