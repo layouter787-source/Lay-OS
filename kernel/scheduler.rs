@@ -1,10 +1,9 @@
 //! Preemptive round-robin scheduler with a first user process.
 
-use crate::{arch, console, gdt, user};
+use crate::{console, gdt, user};
 
 const MAX_TASKS: usize = 4;
 const STACK_SIZE: usize = 16 * 1024;
-const PAGE_DIRECTORY: usize = 0x0010_2000;
 
 #[derive(Clone, Copy, PartialEq)]
 enum TaskState {
@@ -37,8 +36,6 @@ static mut CURRENT: usize = 0;
 static mut TICKS: u64 = 0;
 
 pub fn init() {
-    console::write("scheduler: init begin\n");
-
     unsafe {
         TASKS[0] = Task {
             id: 0,
@@ -49,26 +46,8 @@ pub fn init() {
 
         CURRENT = 0;
         TICKS = 0;
-        console::write("scheduler: kernel task ready\n");
-
-        let stack_start = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>() as usize;
-        let stack_end = stack_start + STACK_SIZE;
-        let pde0 = (PAGE_DIRECTORY as *const u64).read_volatile() as usize;
-
-        console::write("scheduler: stack start=");
-        console::write_hex(stack_start);
-        console::write(" end=");
-        console::write_hex(stack_end);
-        console::write(" rsp=");
-        console::write_hex(arch::current_rsp());
-        console::write(" cr3=");
-        console::write_hex(arch::read_cr3());
-        console::write(" pde0=");
-        console::write_hex(pde0);
-        console::write("\n");
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
-        console::write("scheduler: user context built\n");
 
         TASKS[1] = Task {
             id: 1,
@@ -76,47 +55,35 @@ pub fn init() {
             context,
             user: true,
         };
-        console::write("scheduler: task table ready\n");
     }
 }
 
 unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
-    let stack_start = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>();
-    let mut sp = stack_start.add(STACK_SIZE) as usize;
+    // Saved register order matches interrupt_stubs.asm.
+    // Above the 11 saved registers is the iretq frame:
+    // RIP, CS, RFLAGS, RSP, SS.
+    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[1])
+        .cast::<u8>()
+        .add(STACK_SIZE) as usize;
+    let mut sp = stack_top_addr;
     sp &= !0xF;
 
-    console::write("scheduler: writing context at ");
-    console::write_hex(sp);
-    console::write("\n");
-
     sp -= 8;
-    write(sp, gdt::USER_DATA as usize);
-    console::write("scheduler: ss saved\n");
-
+    write(sp, gdt::USER_DATA as usize); // SS
     sp -= 8;
-    write(sp, stack_top);
-    console::write("scheduler: rsp saved\n");
-
+    write(sp, stack_top); // RSP
     sp -= 8;
-    write(sp, 0x202);
-    console::write("scheduler: flags saved\n");
-
+    write(sp, 0x202); // RFLAGS
     sp -= 8;
-    write(sp, gdt::USER_CODE as usize);
-    console::write("scheduler: cs saved\n");
-
+    write(sp, gdt::USER_CODE as usize); // CS
     sp -= 8;
-    write(sp, entry);
-    console::write("scheduler: rip saved\n");
+    write(sp, entry); // RIP
 
     for _ in 0..11 {
         sp -= 8;
         write(sp, 0);
     }
 
-    console::write("scheduler: context writes complete at ");
-    console::write_hex(sp);
-    console::write("\n");
     sp
 }
 
@@ -148,7 +115,9 @@ pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize 
 }
 
 pub fn tick(value: u64) {
-    unsafe { TICKS = value; }
+    unsafe {
+        TICKS = value;
+    }
 }
 
 pub fn current_id() -> u32 {
