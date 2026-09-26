@@ -140,6 +140,15 @@ pub fn exit_current(status: u64) -> usize {
 }
 
 pub fn tick(value: u64) { unsafe { TICKS = value; } }
+pub fn is_dead(pid: u32) -> bool {
+    unsafe {
+        for index in 0..MAX_TASKS {
+            if TASKS[index].id == pid { return TASKS[index].state == TaskState::Dead; }
+        }
+    }
+    false
+}
+
 pub fn current_id() -> u32 { unsafe { TASKS[CURRENT].id } }
 pub fn ticks() -> u64 { unsafe { TICKS } }
 
