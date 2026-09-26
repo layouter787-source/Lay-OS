@@ -1,28 +1,45 @@
 #![no_std]
 #![no_main]
 
+mod arch;
+mod console;
+mod gdt;
+mod interrupts;
+mod memory;
+mod scheduler;
+
 use core::panic::PanicInfo;
 
 #[no_mangle]
 pub extern "C" fn lay_kernel_main() -> ! {
-    let vga = 0xb8000 as *mut u8;
-    let message = b"LAY OS 0.1 - KERNEL ONLINE";
+    console::write("LAY OS 0.1\n");
+    console::write("kernel: starting core services...\n");
 
-    for (i, &byte) in message.iter().enumerate() {
-        unsafe {
-            vga.add(i * 2).write_volatile(byte);
-            vga.add(i * 2 + 1).write_volatile(0x07);
-        }
-    }
+    gdt::init();
+    console::write("gdt: ok\n");
+
+    memory::init();
+    console::write("memory: allocator ready\n");
+
+    scheduler::init();
+    console::write("scheduler: ready\n");
+
+    interrupts::init();
+    console::write("interrupts: idt/pic/pit ready\n");
+
+    unsafe { arch::sti(); }
+    console::write("kernel: interrupts enabled\n");
+    console::write("LAY OS KERNEL ONLINE\n");
 
     loop {
-        core::hint::spin_loop();
+        unsafe { arch::hlt(); }
     }
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    console::write("LAY KERNEL: PANIC\n");
     loop {
-        core::hint::spin_loop();
+        unsafe { arch::hlt(); }
     }
 }
