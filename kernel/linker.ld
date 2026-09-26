@@ -2,7 +2,7 @@ ENTRY(kernel_entry)
 
 SECTIONS
 {
-    . = 0x1000;
+    . = 0x20000;
 
     .text : ALIGN(16)
     {
@@ -24,5 +24,9 @@ SECTIONS
     {
         *(COMMON)
         *(.bss*)
+        . = ALIGN(16);
+        kernel_boot_stack_start = .;
+        . += 16384;
+        kernel_boot_stack_end = .;
     }
 }
