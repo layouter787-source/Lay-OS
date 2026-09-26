@@ -9,12 +9,7 @@ const STACK_SIZE: usize = 16 * 1024;
 enum TaskState { Empty, Ready, Running, Dead }
 
 #[derive(Clone, Copy)]
-struct Task {
-    id: u32,
-    state: TaskState,
-    context: usize,
-    user: bool,
-}
+struct Task { id: u32, state: TaskState, context: usize, user: bool }
 
 static mut TASKS: [Task; MAX_TASKS] = [Task {
     id: 0, state: TaskState::Empty, context: 0, user: false,
@@ -22,7 +17,6 @@ static mut TASKS: [Task; MAX_TASKS] = [Task {
 
 #[repr(align(16))]
 struct TaskStacks([[u8; STACK_SIZE]; MAX_TASKS]);
-
 static mut STACKS: TaskStacks = TaskStacks([[0; STACK_SIZE]; MAX_TASKS]);
 static mut CURRENT: usize = 0;
 static mut TICKS: u64 = 0;
@@ -30,54 +24,33 @@ static mut EXIT_REPORTED: bool = false;
 
 pub fn init() {
     unsafe {
-        TASKS[0] = Task {
-            id: 0, state: TaskState::Running,
-            context: build_kernel_context(kernel_idle),
-            user: false,
-        };
+        TASKS[0] = Task { id: 0, state: TaskState::Running, context: 0, user: false };
         CURRENT = 0;
         TICKS = 0;
         EXIT_REPORTED = false;
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
-        TASKS[1] = Task {
-            id: 1, state: TaskState::Ready, context, user: true,
-        };
+        TASKS[1] = Task { id: 1, state: TaskState::Ready, context, user: true };
+
         if process::create(1, 0) {
-            console::write("process: pid 1 created parent 0\n");
+            console::write("scheduler: process 1 linked\n");
         }
     }
 }
 
 unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
-    build_context(&mut STACKS.0[1], stack_top, entry, gdt::USER_CODE, gdt::USER_DATA)
-}
+    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[1])
+        .cast::<u8>().add(STACK_SIZE) as usize;
+    let mut sp = stack_top_addr & !0xF;
 
-unsafe fn build_kernel_context(entry: extern "C" fn() -> !) -> usize {
-    let stack_top = core::ptr::addr_of_mut!(STACKS.0[0]).cast::<u8>().add(STACK_SIZE) as usize;
-    build_context(&mut STACKS.0[0], stack_top, entry as usize, gdt::KERNEL_CODE, gdt::KERNEL_DATA)
-}
-
-unsafe fn build_context(
-    _stack: &mut [u8; STACK_SIZE],
-    stack_top: usize,
-    entry: usize,
-    code: u16,
-    data: u16,
-) -> usize {
-    let mut sp = stack_top & !0xF;
-    sp -= 8; write(sp, data as usize);
+    sp -= 8; write(sp, gdt::USER_DATA as usize);
     sp -= 8; write(sp, stack_top);
     sp -= 8; write(sp, 0x202);
-    sp -= 8; write(sp, code as usize);
+    sp -= 8; write(sp, gdt::USER_CODE as usize);
     sp -= 8; write(sp, entry);
+
     for _ in 0..11 { sp -= 8; write(sp, 0); }
     sp
-}
-
-extern "C" fn kernel_idle() -> ! {
-    console::write("scheduler: returned to kernel context\n");
-    loop { unsafe { crate::arch::hlt() } }
 }
 
 unsafe fn write(address: usize, value: usize) {
@@ -97,7 +70,7 @@ pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize 
     for step in 1..=MAX_TASKS {
         let candidate = (previous + step) % MAX_TASKS;
         if TASKS[candidate].state == TaskState::Ready
-            && (candidate == 0 || process::state(TASKS[candidate].id) != process::State::Exited)
+            && (candidate == 0 || !is_dead(TASKS[candidate].id))
         {
             CURRENT = candidate;
             TASKS[candidate].state = TaskState::Running;
@@ -120,7 +93,7 @@ pub fn exit_current(status: u64) -> usize {
         for step in 1..=MAX_TASKS {
             let candidate = (current + step) % MAX_TASKS;
             if TASKS[candidate].state == TaskState::Ready
-                && (candidate == 0 || process::state(TASKS[candidate].id) != process::State::Exited)
+                && (candidate == 0 || !is_dead(TASKS[candidate].id))
             {
                 CURRENT = candidate;
                 TASKS[candidate].state = TaskState::Running;
@@ -133,13 +106,14 @@ pub fn exit_current(status: u64) -> usize {
             EXIT_REPORTED = true;
             console::write("scheduler: no runnable user process\n");
         }
+
+        // The kernel task's context is populated by the first timer interrupt.
         TASKS[0].state = TaskState::Running;
         CURRENT = 0;
         TASKS[0].context
     }
 }
 
-pub fn tick(value: u64) { unsafe { TICKS = value; } }
 pub fn is_dead(pid: u32) -> bool {
     unsafe {
         for index in 0..MAX_TASKS {
@@ -149,6 +123,7 @@ pub fn is_dead(pid: u32) -> bool {
     false
 }
 
+pub fn tick(value: u64) { unsafe { TICKS = value; } }
 pub fn current_id() -> u32 { unsafe { TASKS[CURRENT].id } }
 pub fn ticks() -> u64 { unsafe { TICKS } }
 
