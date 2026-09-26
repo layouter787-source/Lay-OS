@@ -49,8 +49,8 @@ pub fn init() {
         // Executable user page is read/execute; no user write permission.
         pt.add(0).write((USER_ENTRY as u64) | PTE_PRESENT | PTE_USER);
 
-        // User stack lives at [0x004FF000, 0x00500000).
-        pt.add(0x100).write(
+        // RSP starts at 0x00500000, so its first stack access is in 0x004FF000.
+        pt.add(0x0FF).write(
             ((USER_STACK_TOP - 0x1000) as u64)
                 | PTE_PRESENT
                 | PTE_RW
