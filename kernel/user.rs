@@ -1,5 +1,5 @@
 //! First protected user address space.
-//! One executable page at 0x0020_0000 and one stack page below 0x0030_0000.
+//! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
 
 pub const USER_ENTRY: usize = 0x0020_0000;
 pub const USER_STACK_TOP: usize = 0x0030_0000;
@@ -35,11 +35,6 @@ fn user_byte(index: usize) -> u8 {
 pub fn init() {
     crate::console::write("user: init begin\n");
     unsafe {
-        if crate::memory::alloc_page() != Some(USER_ENTRY) {
-            crate::console::write("user: page allocation failed\n");
-            return;
-        }
-
         let dst = USER_ENTRY as *mut u8;
         dst.write_volatile(0xCC);
         crate::console::write("user: destination write ok\n");
@@ -51,7 +46,7 @@ pub fn init() {
 
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
-        (PD as *mut u64).add(1).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+        (PD as *mut u64).add(8).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
 
         let pt = PT as *mut u64;
         for index in 0..512 {
