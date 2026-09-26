@@ -3,6 +3,8 @@ KERNEL_ELF := $(BUILD)/kernel.elf
 KERNEL_BIN := $(BUILD)/kernel.bin
 IMAGE := $(BUILD)/lay-os.img
 
+RUSTFLAGS := -C opt-level=2 -C panic=abort -C red-zone=no
+
 all: $(IMAGE)
 
 $(BUILD):
@@ -14,11 +16,14 @@ $(BUILD)/boot.bin: boot/boot.asm | $(BUILD)
 $(BUILD)/kernel_entry.o: kernel/entry.asm | $(BUILD)
 	nasm -f elf64 $< -o $@
 
-$(BUILD)/liblay_kernel.a: kernel/main.rs Cargo.toml | $(BUILD)
-	cargo build --release
+$(BUILD)/interrupt_stubs.o: kernel/interrupt_stubs.asm | $(BUILD)
+	nasm -f elf64 $< -o $@
 
-$(KERNEL_ELF): $(BUILD)/kernel_entry.o $(BUILD)/liblay_kernel.a kernel/linker.ld
-	ld -nostdlib -z max-page-size=0x1000 -T kernel/linker.ld -o $@ $(BUILD)/kernel_entry.o $(BUILD)/liblay_kernel.a
+$(BUILD)/liblay_kernel.a: $(wildcard kernel/*.rs) Cargo.toml
+	RUSTFLAGS="$(RUSTFLAGS)" cargo build --release
+
+$(KERNEL_ELF): $(BUILD)/kernel_entry.o $(BUILD)/interrupt_stubs.o $(BUILD)/liblay_kernel.a kernel/linker.ld
+	ld -nostdlib -z max-page-size=0x1000 -T kernel/linker.ld -o $@ $(BUILD)/kernel_entry.o $(BUILD)/interrupt_stubs.o $(BUILD)/liblay_kernel.a
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	objcopy -O binary $< $@
