@@ -1,6 +1,6 @@
 //! IDT, PIC, PIT and syscall entry.
 
-use crate::arch::{idt_pointer_placeholder, inb, lidt, outb, IdtPointer};
+use crate::arch::{inb, lidt, outb, IdtPointer};
 
 const IDT_ENTRIES: usize = 256;
 const PIC1: u16 = 0x20;
@@ -126,6 +126,7 @@ pub fn init() {
             base: core::ptr::addr_of!(IDT) as u64,
         };
         lidt(&pointer);
+
         remap_pic();
         init_pit(100);
     }
