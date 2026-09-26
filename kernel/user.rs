@@ -1,5 +1,5 @@
 //! First protected user address space.
-//! One executable page at 0x0040_0000 and one stack page below 0x0050_0000.
+//! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
 
 pub const USER_ENTRY: usize = 0x0040_0000;
 pub const USER_STACK_TOP: usize = 0x0050_0000;
