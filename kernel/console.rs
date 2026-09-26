@@ -1,6 +1,7 @@
-//! Minimal VGA text console.
+//! VGA text console plus QEMU debug output.
 
 const VGA: usize = 0xB8000;
+const DEBUG_PORT: u16 = 0xE9;
 const WIDTH: usize = 80;
 const HEIGHT: usize = 25;
 
@@ -13,8 +14,10 @@ pub fn write(text: &str) {
     }
 }
 
-fn put_byte(byte: u8) {
+pub fn put_byte(byte: u8) {
     unsafe {
+        crate::arch::outb(DEBUG_PORT, byte);
+
         if byte == b'\n' {
             COL = 0;
             ROW = (ROW + 1) % HEIGHT;
