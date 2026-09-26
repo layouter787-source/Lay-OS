@@ -1,4 +1,4 @@
-; Hardware interrupt stubs for Lay OS.
+; Lay OS interrupt entry stubs.
 bits 64
 
 global irq0_stub
@@ -57,6 +57,7 @@ irq1_stub:
     pop r9
     pop r8
     pop rdi
+    pop rsi
     pop rbp
     pop rbx
     pop rdx
@@ -68,7 +69,6 @@ exception_stub:
     call exception_handler
     ud2
 
-; Software syscall entry. The same register frame is used by the kernel ABI.
 syscall_stub:
     push rax
     push rcx
@@ -83,6 +83,7 @@ syscall_stub:
     push r11
     mov rdi, rsp
     call syscall_handler
+    mov rsp, rax
     pop r11
     pop r10
     pop r9
