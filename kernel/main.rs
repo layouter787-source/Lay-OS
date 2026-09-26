@@ -7,6 +7,7 @@ mod gdt;
 mod interrupts;
 mod ipc;
 mod memory;
+mod runtime;
 mod scheduler;
 mod syscalls;
 mod user;
