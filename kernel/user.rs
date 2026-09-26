@@ -35,8 +35,10 @@ pub fn init() {
             crate::console::write("user: page allocation failed\n");
             return;
         }
-        let src = USER_CODE.as_ptr();
         let dst = USER_ENTRY as *mut u8;
+        dst.write_volatile(0xCC);
+        crate::console::write("user: destination write ok\n");
+        let src = USER_CODE.as_ptr();
         for index in 0..USER_CODE.len() {
             dst.add(index).write(src.add(index).read());
         }
