@@ -14,11 +14,21 @@ pub fn write(text: &str) {
     }
 }
 
+pub fn write_hex(value: usize) {
+    write("0x");
+    let digits = b"0123456789ABCDEF";
+    for shift in (0..16).rev() {
+        let nibble = ((value >> (shift * 4)) & 0xF) as usize;
+        put_byte(digits[nibble]);
+    }
+}
+
 pub fn put_byte(byte: u8) {
     unsafe {
         crate::arch::outb(DEBUG_PORT, byte);
 
-        if byte == b'\n' {
+        if byte == b'
+' {
             COL = 0;
             ROW = (ROW + 1) % HEIGHT;
             return;
