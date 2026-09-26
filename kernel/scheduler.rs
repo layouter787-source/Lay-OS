@@ -30,6 +30,9 @@ pub fn init() {
         EXIT_REPORTED = false;
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
+        console::write("scheduler: user context ");
+        console::write_hex(context);
+        console::write("\n");
         TASKS[1] = Task { id: 1, state: TaskState::Ready, context, user: true };
 
         if process::create(1, 0) {
