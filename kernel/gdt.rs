@@ -52,7 +52,7 @@ unsafe fn write_u64(ptr: *mut u8, offset: usize, value: u64) {
 
 pub fn init() {
     unsafe {
-        let tss = TSS.0.as_mut_ptr();
+        let tss = core::ptr::addr_of_mut!(TSS).cast::<u8>();
 
         // Long-mode TSS layout:
         // RSP0 is at byte offset 4 and I/O map base at byte offset 102.
@@ -88,10 +88,10 @@ pub fn init() {
         // Reload CS with the kernel 64-bit descriptor.
         core::arch::asm!(
             "push 0x18",
-            "lea rax, [rip + 1f]",
+            "lea rax, [rip + 2f]",
             "push rax",
             "retfq",
-            "1:",
+            "2:",
             out("rax") _,
             options(preserves_flags)
         );
