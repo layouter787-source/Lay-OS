@@ -1,7 +1,4 @@
 //! Timer-driven kernel scheduler foundation.
-//!
-//! This first scheduler is cooperative: timer interrupts advance the scheduler
-//! state, while tasks explicitly yield. Preemptive context switching comes next.
 
 const MAX_TASKS: usize = 32;
 
@@ -27,23 +24,25 @@ pub fn tick(ticks: u64) {
     unsafe {
         TICKS = ticks;
         if ticks % 10 == 0 {
-            CURRENT = (CURRENT + 1) % MAX_TASKS;
-            while !TASKS[CURRENT].active {
-                CURRENT = (CURRENT + 1) % MAX_TASKS;
-            }
+            select_next();
         }
     }
 }
 
 pub fn yield_now() {
-    unsafe {
-        CURRENT = (CURRENT + 1) % MAX_TASKS;
-        while !TASKS[CURRENT].active {
-            CURRENT = (CURRENT + 1) % MAX_TASKS;
-        }
-    }
+    unsafe { select_next(); }
 }
 
 pub fn current_id() -> u32 {
     unsafe { TASKS[CURRENT].id }
+}
+
+unsafe fn select_next() {
+    for step in 1..=MAX_TASKS {
+        let candidate = (CURRENT + step) % MAX_TASKS;
+        if TASKS[candidate].active {
+            CURRENT = candidate;
+            return;
+        }
+    }
 }
