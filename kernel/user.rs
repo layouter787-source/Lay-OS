@@ -121,8 +121,8 @@ pub fn init() {
         pt.add(0x0FF).write(
             ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
+        crate::arch::reload_cr3();
         crate::console::write("user: page tables ready\n");
     }
 }
-        crate::arch::reload_cr3();
 
