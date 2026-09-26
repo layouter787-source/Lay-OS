@@ -19,17 +19,17 @@ pub unsafe fn lidt(idt: &IdtPointer) {
 
 #[inline(always)]
 pub unsafe fn sti() {
-    core::arch::asm!("sti", options(nomem, nostack, preserves_flags));
+    core::arch::asm!("sti", options(nomem, nostack));
 }
 
 #[inline(always)]
 pub unsafe fn cli() {
-    core::arch::asm!("cli", options(nomem, nostack, preserves_flags));
+    core::arch::asm!("cli", options(nomem, nostack));
 }
 
 #[inline(always)]
 pub unsafe fn hlt() {
-    core::arch::asm!("hlt", options(nomem, nostack, preserves_flags));
+    core::arch::asm!("hlt", options(nomem, nostack));
 }
 
 #[repr(C, packed)]
