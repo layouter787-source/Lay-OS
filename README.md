@@ -22,3 +22,25 @@ Sistema operacional próprio, desenvolvido do zero.
 - `docs/` — decisões e arquitetura
 
 A implementação começará pelo primeiro marco: firmware → bootloader Lay → entrada do kernel → execução segura do kernel.
+
+## Estado atual
+
+O primeiro núcleo funcional já possui:
+- entrada x86_64 em long mode
+- GDT controlada pelo kernel
+- IDT com exceção e IRQs
+- PIC remapeado
+- PIT a 100 Hz
+- console VGA
+- alocador físico inicial de páginas
+- base de scheduler orientado por ticks
+
+### Próximas camadas
+1. allocator de memória dinâmica
+2. gerenciamento de processos/threads
+3. troca de contexto preemptiva
+4. syscalls e IPC
+5. driver de armazenamento
+6. filesystem LayFS
+7. drivers de entrada e vídeo
+8. compositor e Lay UI
