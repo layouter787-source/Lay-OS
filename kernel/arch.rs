@@ -51,3 +51,8 @@ pub struct IdtPointer {
     pub limit: u16,
     pub base: u64,
 }
+
+
+pub unsafe fn reload_cr3() {
+    core::arch::asm!("mov rax, cr3", "mov cr3, rax", out("rax") _, options(nostack, preserves_flags));
+}
