@@ -8,25 +8,20 @@ struct GdtPointer {
     base: u64,
 }
 
-#[repr(C, packed)]
-pub struct Tss64 {
-    _reserved0: u32,
-    pub rsp: [u64; 3],
-    _reserved1: u64,
-    pub ist: [u64; 7],
-    _reserved2: u64,
-    _reserved3: u16,
-    pub iomap: u16,
-}
+const TSS_SIZE: usize = 104;
+const USER_KERNEL_STACK_SIZE: usize = 16 * 1024;
+
+#[repr(align(16))]
+struct TssStorage([u8; TSS_SIZE]);
+
+#[repr(align(16))]
+struct UserKernelStack([u8; USER_KERNEL_STACK_SIZE]);
 
 pub const KERNEL_CODE: u16 = 0x18;
 pub const KERNEL_DATA: u16 = 0x20;
 pub const USER_DATA: u16 = 0x2B;
 pub const USER_CODE: u16 = 0x33;
 pub const TSS_SELECTOR: u16 = 0x38;
-
-pub const TASK0_STACK_TOP: usize = 0x90000;
-pub const USER_KERNEL_STACK_TOP: usize = 0x88000;
 
 #[repr(align(16))]
 struct Gdt([u64; 9]);
@@ -37,30 +32,39 @@ static mut GDT: Gdt = Gdt([
     0x00CF92000000FFFF,
     0x00AF9A000000FFFF,
     0x00AF92000000FFFF,
-    0x00CFF2000000FFFF, // user data, DPL3
-    0x00AFFA000000FFFF, // user code, DPL3, 64-bit
+    0x00CFF2000000FFFF,
+    0x00AFFA000000FFFF,
     0,
     0,
 ]);
 
-static mut TSS: Tss64 = Tss64 {
-    _reserved0: 0,
-    rsp: [0; 3],
-    _reserved1: 0,
-    ist: [0; 7],
-    _reserved2: 0,
-    _reserved3: 0,
-    iomap: size_of::<Tss64>() as u16,
-};
+static mut TSS: TssStorage = TssStorage([0; TSS_SIZE]);
+static mut USER_KERNEL_STACK: UserKernelStack =
+    UserKernelStack([0; USER_KERNEL_STACK_SIZE]);
+
+unsafe fn write_u16(ptr: *mut u8, offset: usize, value: u16) {
+    ptr.add(offset).cast::<u16>().write_unaligned(value);
+}
+
+unsafe fn write_u64(ptr: *mut u8, offset: usize, value: u64) {
+    ptr.add(offset).cast::<u64>().write_unaligned(value);
+}
 
 pub fn init() {
     unsafe {
-        TSS.rsp[0] = USER_KERNEL_STACK_TOP as u64;
+        let tss = TSS.0.as_mut_ptr();
+
+        // Long-mode TSS layout:
+        // RSP0 is at byte offset 4 and I/O map base at byte offset 102.
+        let user_stack_top =
+            core::ptr::addr_of!(USER_KERNEL_STACK) as usize + USER_KERNEL_STACK_SIZE;
+        write_u64(tss, 4, user_stack_top as u64);
+        write_u16(tss, 102, TSS_SIZE as u16);
 
         let base = core::ptr::addr_of!(TSS) as u64;
-        let limit = (size_of::<Tss64>() - 1) as u64;
+        let limit = (TSS_SIZE - 1) as u64;
 
-        // 64-bit available TSS descriptor (type 0x9, P=1).
+        // 64-bit available TSS descriptor, type 0x9, present.
         GDT.0[7] =
             (limit & 0xFFFF)
             | ((base & 0xFFFF) << 16)
