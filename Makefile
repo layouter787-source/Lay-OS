@@ -3,7 +3,7 @@ KERNEL_ELF := $(BUILD)/kernel.elf
 KERNEL_BIN := $(BUILD)/kernel.bin
 IMAGE := $(BUILD)/lay-os.img
 
-RUSTFLAGS := -C opt-level=2 -C panic=abort -C red-zone=no
+RUSTFLAGS := -C opt-level=2 -C panic=abort -C no-redzone
 IMAGE_SIZE := 524800
 
 all: $(IMAGE)
