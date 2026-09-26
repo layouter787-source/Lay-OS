@@ -66,10 +66,13 @@ pub extern "C" fn exception_handler() -> ! {
 }
 
 #[no_mangle]
-pub extern "C" fn timer_handler() {
+pub extern "C" fn timer_handler(saved_context: usize) -> usize {
     unsafe { TICKS = TICKS.wrapping_add(1); }
-    let ticks = unsafe { TICKS };\n    crate::scheduler::tick(ticks);
+    let ticks = unsafe { TICKS };
+    crate::scheduler::tick(ticks);
+    let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
     outb(PIC1, 0x20);
+    next_context
 }
 
 #[no_mangle]
