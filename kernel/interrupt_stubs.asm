@@ -78,6 +78,7 @@ general_protection_stub:
     ud2
 
 page_fault_stub:
+    mov rdi, [rsp]
     call page_fault_handler
     ud2
 
