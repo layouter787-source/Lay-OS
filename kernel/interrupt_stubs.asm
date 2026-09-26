@@ -73,6 +73,14 @@ exception_stub:
     call exception_handler
     ud2
 
+general_protection_stub:
+    call general_protection_handler
+    ud2
+
+page_fault_stub:
+    call page_fault_handler
+    ud2
+
 syscall_stub:
     push rax
     push rcx
