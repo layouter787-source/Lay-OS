@@ -96,12 +96,6 @@ pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
     let number = *regs.add(10);
     let arg1 = *regs.add(7);
     let arg2 = *regs.add(4);
-    crate::console::write("syscall ");
-    crate::console::write_hex(number as usize);
-    crate::console::write(" rip ");
-    crate::console::write_hex(*regs.add(11) as usize);
-    crate::console::write("\n");
-
     *regs.add(10) = crate::syscalls::dispatch(number, arg1, arg2);
 
     if number == crate::syscalls::SYS_YIELD {
