@@ -46,7 +46,8 @@ pub fn init() {
 
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
-        (PD as *mut u64).add(8).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+        // 0x0020_0000 belongs to the second 2 MiB region: PD index 1.
+        (PD as *mut u64).add(1).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
 
         let pt = PT as *mut u64;
         for index in 0..512 {
