@@ -50,6 +50,14 @@ pub fn init() {
         TICKS = 0;
         console::write("scheduler: kernel task ready\n");
 
+        let stack_start = core::ptr::addr_of_mut!(STACKS.0[1]).cast::<u8>() as usize;
+        let stack_end = stack_start + STACK_SIZE;
+        console::write("scheduler: stack start=");
+        console::write_hex(stack_start);
+        console::write(" end=");
+        console::write_hex(stack_end);
+        console::write("\n");
+
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
         console::write("scheduler: user context built\n");
 
@@ -68,6 +76,10 @@ unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
     let mut sp = stack_start.add(STACK_SIZE) as usize;
     sp &= !0xF;
 
+    console::write("scheduler: writing context at ");
+    console::write_hex(sp);
+    console::write("\n");
+
     sp -= 8;
     write(sp, gdt::USER_DATA as usize);
     sp -= 8;
@@ -84,6 +96,9 @@ unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
         write(sp, 0);
     }
 
+    console::write("scheduler: context writes complete at ");
+    console::write_hex(sp);
+    console::write("\n");
     sp
 }
 
