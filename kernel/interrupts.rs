@@ -75,9 +75,18 @@ pub extern "C" fn timer_handler(saved_context: usize) -> usize {
         TICKS = TICKS.wrapping_add(1);
     }
     let ticks = unsafe { TICKS };
+
+    if ticks == 1 {
+        crate::console::write("timer: first tick\n");
+    }
+
     crate::scheduler::tick(ticks);
 
     let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
+    if ticks == 1 {
+        crate::console::write("timer: context selected\n");
+    }
+
     unsafe { outb(PIC1, 0x20) };
     next_context
 }
