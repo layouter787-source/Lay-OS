@@ -1,5 +1,4 @@
 bits 64
-org 0x20000
 
 global kernel_entry
 extern lay_kernel_main
