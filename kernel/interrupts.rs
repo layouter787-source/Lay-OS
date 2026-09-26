@@ -31,7 +31,7 @@ impl IdtEntry {
         reserved: 0,
     };
 
-    fn new(handler: extern "C" fn()) -> Self {
+    fn new(handler: unsafe extern "C" fn()) -> Self {
         let address = handler as usize as u64;
         Self {
             offset_low: address as u16,
