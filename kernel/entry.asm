@@ -8,6 +8,8 @@ extern lay_kernel_main
 kernel_entry:
     cli
     mov rsp, 0x90000
+    cld
+    and rsp, -16
     call lay_kernel_main
 
 .halt:
