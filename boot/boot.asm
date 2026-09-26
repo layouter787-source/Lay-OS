@@ -1,5 +1,6 @@
 ; Lay OS x86_64 BIOS loader.
-; Loads a fixed 1024-sector development window in <=127-sector BIOS transfers.
+; Kernel is loaded at 0x20000, safely away from the BIOS boot sector at 0x7C00.
+; A fixed 1024-sector development window is read in <=127-sector transfers.
 bits 16
 org 0x7C00
 
@@ -13,7 +14,7 @@ start:
 
     mov [boot_drive], dl
     mov word [remaining], 1024
-    mov dword [dest_phys], 0x1000
+    mov dword [dest_phys], 0x20000
     mov dword [current_lba], 1
     mov dword [current_lba+4], 0
 
@@ -86,7 +87,7 @@ protected_mode:
     mov es, ax
     mov ss, ax
 
-    ; Page tables live at 1 MiB, above the development kernel load window.
+    ; Page tables live at 1 MiB, above the kernel load window.
     mov edi, 0x100000
     xor eax, eax
     mov ecx, 0x3000 / 4
@@ -129,8 +130,7 @@ long_mode:
     mov ds, ax
     mov es, ax
     mov ss, ax
-    mov rsp, 0x90000
-    jmp 0x1000
+    jmp 0x20000
 
 boot_drive db 0
 remaining dw 0
