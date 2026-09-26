@@ -35,3 +35,15 @@ pub fn put_byte(byte: u8) {
         }
     }
 }
+
+
+pub fn write_hex(mut value: usize) {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    put_byte(b"0"[0]); put_byte(b"x"[0]);
+    let mut shift = (core::mem::size_of::<usize>() * 8).saturating_sub(4);
+    loop {
+        put_byte(HEX[((value >> shift) & 0xF) as usize]);
+        if shift == 0 { break; }
+        shift -= 4;
+    }
+}
