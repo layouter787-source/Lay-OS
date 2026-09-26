@@ -1,62 +1,36 @@
-//! Minimal kernel process lifecycle for the first native user process.
+//! Process lifecycle API backed by the scheduler's task table.
+//! Keeping one authoritative task state avoids duplicating kernel memory state.
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum State { Free, Running, Ready, Exited }
 
-static mut PID1_STATE: State = State::Free;
-static mut PID1_STATUS: u64 = 0;
-
 pub fn init() {
-    crate::console::write("process: init begin\n");
-    unsafe {
-        PID1_STATE = State::Free;
-        PID1_STATUS = 0;
-    }
     crate::console::write("process: table ready\n");
 }
 
 pub fn create(pid: u32, parent: u32) -> bool {
-    if pid != 1 || parent != 0 { return false; }
-    unsafe { PID1_STATE = State::Ready; }
-    true
-}
-
-pub fn set_running(pid: u32) {
-    if pid == 1 {
-        unsafe { PID1_STATE = State::Running; }
+    if pid == 1 && parent == 0 {
+        crate::console::write("process: pid 1 created parent 0\n");
+        true
+    } else {
+        false
     }
 }
 
-pub fn set_ready(pid: u32) {
-    if pid == 1 {
-        unsafe {
-            if PID1_STATE == State::Running { PID1_STATE = State::Ready; }
-        }
-    }
-}
+pub fn set_running(_pid: u32) {}
+pub fn set_ready(_pid: u32) {}
 
 pub fn exit(pid: u32, status: u64) {
-    if pid != 1 { return; }
-    unsafe {
-        PID1_STATE = State::Exited;
-        PID1_STATUS = status;
+    if pid == 1 {
+        crate::console::write("process: pid 1 exited status ");
+        write_u64(status);
+        crate::console::write("\n");
     }
-    crate::console::write("process: pid 1 exited status ");
-    write_u64(status);
-    crate::console::write("\n");
 }
 
 pub fn state(pid: u32) -> State {
-    if pid == 1 {
-        unsafe { PID1_STATE }
-    } else {
-        State::Free
-    }
-}
-
-#[allow(dead_code)]
-pub fn exit_status(pid: u32) -> u64 {
-    if pid == 1 { unsafe { PID1_STATUS } } else { 0 }
+    if pid != 1 { return State::Free; }
+    if crate::scheduler::is_dead(pid) { State::Exited } else { State::Ready }
 }
 
 fn write_u64(mut value: u64) {
