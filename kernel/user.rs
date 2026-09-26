@@ -14,7 +14,7 @@ const PTE_RW: u64 = 2;
 const PTE_USER: u64 = 4;
 
 // User process: getpid, print U/yield four times, then exit(0).
-const USER_CODE_LEN: usize = 31;
+const USER_CODE_LEN: usize = 33;
 
 fn user_byte(index: usize) -> u8 {
     match index {
@@ -24,7 +24,7 @@ fn user_byte(index: usize) -> u8 {
         12 => 0xBF, 13 => 0x55, 14 => 0x00, 15 => 0x00, 16 => 0x00,
         17 => 0xB8, 18 => 0x05, 19 => 0x00, 20 => 0x00, 21 => 0x00,
         22 => 0xCD, 23 => 0x80,
-        24 => 0xB8, 25 => 0x06, 26 => 0x00, 27 => 0x00, 28 => 0x00,
+        24 => 0x31, 25 => 0xFF, 26 => 0xB8, 27 => 0x06, 26 => 0x00, 27 => 0x00, 28 => 0x00,
         29 => 0xCD, 30 => 0x80,
         _ => 0,
     }
