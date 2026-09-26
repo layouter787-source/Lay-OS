@@ -72,6 +72,7 @@ pub extern "C" fn keyboard_handler() {
 
 #[no_mangle]
 pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
+    crate::console::write("syscall: enter\\n");
     let regs = saved_context as *mut u64;
     let number = *regs.add(10);
     let arg1 = *regs.add(7);
