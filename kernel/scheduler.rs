@@ -22,6 +22,10 @@ static mut CURRENT: usize = 0;
 static mut TICKS: u64 = 0;
 static mut EXIT_REPORTED: bool = false;
 
+#[repr(align(16))]
+struct ExitStack([u8; STACK_SIZE]);
+static mut EXIT_STACK: ExitStack = ExitStack([0; STACK_SIZE]);
+
 pub fn init() {
     unsafe {
         let kernel_context = build_kernel_context();
@@ -57,7 +61,7 @@ pub extern "C" fn kernel_resume() -> ! {
 }
 
 unsafe fn build_kernel_context() -> usize {
-    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[0]).cast::<u8>().add(STACK_SIZE) as usize;
+    let stack_top_addr = core::ptr::addr_of_mut!(EXIT_STACK.0).cast::<u8>().add(STACK_SIZE) as usize;
     let mut sp = stack_top_addr & !0xF;
     sp -= 8; write(sp, gdt::KERNEL_DATA as usize);
     sp -= 8; write(sp, stack_top_addr);
