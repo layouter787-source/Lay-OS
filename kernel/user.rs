@@ -1,8 +1,8 @@
 //! First protected user address space.
 //! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
 
-pub const USER_ENTRY: usize = 0x0020_0000;
-pub const USER_STACK_TOP: usize = 0x0030_0000;
+pub const USER_ENTRY: usize = 0x0040_0000;
+pub const USER_STACK_TOP: usize = 0x0050_0000;
 
 const PML4: usize = 0x0010_0000;
 const PDPT: usize = 0x0010_1000;
@@ -46,8 +46,8 @@ pub fn init() {
 
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
-        // 0x0020_0000 belongs to the second 2 MiB region: PD index 1.
-        (PD as *mut u64).add(1).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+        // 0x0040_0000 belongs to the third 2 MiB region: PD index 2.
+        (PD as *mut u64).add(2).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
 
         let pt = PT as *mut u64;
         for index in 0..512 {
