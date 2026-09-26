@@ -1,6 +1,6 @@
 //! Preemptive round-robin scheduler with a first user process.
 
-use crate::{console, gdt, user};
+use crate::{arch, console, gdt, user};
 
 const MAX_TASKS: usize = 4;
 const STACK_SIZE: usize = 16 * 1024;
@@ -56,6 +56,10 @@ pub fn init() {
         console::write_hex(stack_start);
         console::write(" end=");
         console::write_hex(stack_end);
+        console::write(" rsp=");
+        console::write_hex(arch::current_rsp());
+        console::write(" cr3=");
+        console::write_hex(arch::read_cr3());
         console::write("\n");
 
         let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
