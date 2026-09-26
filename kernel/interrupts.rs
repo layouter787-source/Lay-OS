@@ -75,17 +75,10 @@ pub extern "C" fn timer_handler(saved_context: usize) -> usize {
         TICKS = TICKS.wrapping_add(1);
     }
     let ticks = unsafe { TICKS };
-
-    if ticks == 1 {
-        crate::console::write("timer: first tick\n");
-    }
-
     crate::scheduler::tick(ticks);
 
-    let next_context = unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
-    if ticks == 1 {
-        crate::console::write("timer: context selected\n");
-    }
+    let next_context =
+        unsafe { crate::scheduler::schedule_from_interrupt(saved_context) };
 
     unsafe { outb(PIC1, 0x20) };
     next_context
@@ -102,9 +95,9 @@ pub extern "C" fn keyboard_handler() {
 #[no_mangle]
 pub unsafe extern "C" fn syscall_handler(saved_context: usize) -> usize {
     let regs = saved_context as *mut u64;
-    // interrupt_stubs.asm pushes registers in this order:
-    // RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
-    // Since the stack grows downward, the saved frame is:
+
+    // Stub pushes RAX, RCX, RDX, RBX, RBP, RSI, RDI, R8, R9, R10, R11.
+    // Because the stack grows downward, indices are:
     // R11, R10, R9, R8, RDI, RSI, RBP, RBX, RDX, RCX, RAX.
     let number = *regs.add(10);
     let arg1 = *regs.add(7);
