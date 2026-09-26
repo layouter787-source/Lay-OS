@@ -27,8 +27,7 @@ pub fn put_byte(byte: u8) {
     unsafe {
         crate::arch::outb(DEBUG_PORT, byte);
 
-        if byte == b'
-' {
+        if byte == b'\n' {
             COL = 0;
             ROW = (ROW + 1) % HEIGHT;
             return;
