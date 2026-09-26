@@ -96,3 +96,5 @@ syscall_stub:
     pop rcx
     pop rax
     iretq
+
+section .note.GNU-stack noalloc noexec nowrite progbits
