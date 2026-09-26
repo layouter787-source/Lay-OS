@@ -4,6 +4,7 @@ KERNEL_BIN := $(BUILD)/kernel.bin
 IMAGE := $(BUILD)/lay-os.img
 
 RUSTFLAGS := -C opt-level=2 -C panic=abort -C red-zone=no
+IMAGE_SIZE := 524800
 
 all: $(IMAGE)
 
@@ -29,8 +30,9 @@ $(KERNEL_BIN): $(KERNEL_ELF)
 	objcopy -O binary $< $@
 
 $(IMAGE): $(BUILD)/boot.bin $(KERNEL_BIN)
+	@size=$$(stat -c %s $(KERNEL_BIN)); test $$size -le 524288 || { echo "kernel.bin exceeds 1024-sector boot window"; exit 1; }
 	cat $(BUILD)/boot.bin $(KERNEL_BIN) > $@
-	truncate -s %512 $@
+	truncate -s $(IMAGE_SIZE) $@
 
 clean:
 	rm -rf $(BUILD)
