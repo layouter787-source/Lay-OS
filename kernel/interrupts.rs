@@ -55,9 +55,11 @@ pub extern "C" fn general_protection_handler() -> ! {
 }
 
 #[no_mangle]
-pub extern "C" fn page_fault_handler() -> ! {
+pub extern "C" fn page_fault_handler(error: u64) -> ! {
     crate::console::write("LAY KERNEL: page fault @ ");
     crate::console::write_hex(crate::arch::read_cr2());
+    crate::console::write(" err ");
+    crate::console::write_hex(error as usize);
     crate::console::write("\n");
     loop { unsafe { crate::arch::hlt() } }
 }
