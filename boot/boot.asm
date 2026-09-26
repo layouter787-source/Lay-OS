@@ -1,5 +1,5 @@
-; Lay OS — x86_64 boot sector prototype
-; Loads the first kernel sectors and transfers control to kernel_entry.
+; Lay OS — x86_64 boot sector
+; First-stage BIOS loader for the initial development image.
 
 bits 16
 org 0x7C00
@@ -14,14 +14,14 @@ start:
 
     mov [boot_drive], dl
 
-    ; Load 32 sectors at 0x1000 using BIOS INT 13h extensions.
+    ; Development image reserves the first 128 sectors after the boot sector
+    ; for the kernel image.
     mov si, dap
     mov ah, 0x42
     mov dl, [boot_drive]
     int 0x13
     jc disk_error
 
-    ; Enable A20 through the fast gate.
     in al, 0x92
     or al, 00000010b
     out 0x92, al
@@ -55,17 +55,14 @@ protected_mode:
     mov es, ax
     mov ss, ax
 
-    ; Clear and build identity-mapped page tables at 0x7000.
     mov edi, 0x7000
     xor eax, eax
     mov ecx, 0x3000 / 4
     rep stosd
 
-    ; PML4 -> PDPT
     mov dword [0x7000], 0x8000 | 0x3
-    ; PDPT -> PD
     mov dword [0x8000], 0x9000 | 0x3
-    ; PD: 2 MiB identity pages, first 1 GiB
+
     mov edi, 0x9000
     mov eax, 0x83
     mov ecx, 512
@@ -109,7 +106,7 @@ boot_drive db 0
 dap:
     db 0x10
     db 0
-    dw 32
+    dw 128
     dw 0x1000
     dw 0
     dd 1
