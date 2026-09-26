@@ -141,10 +141,10 @@ pub fn exit_current(status: u64) -> usize {
             console::write("scheduler: no runnable user process\n");
         }
 
-        // The kernel task's context is populated by the first timer interrupt.
+        // Process exit always returns through a dedicated kernel context.
         TASKS[0].state = TaskState::Running;
         CURRENT = 0;
-        TASKS[0].context
+        build_kernel_context()
     }
 }
 
