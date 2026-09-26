@@ -29,12 +29,15 @@ pub static USER_CODE: [u8; 54] = [
 ];
 
 pub fn init() {
+    crate::console::write("user: init begin\n");
     unsafe {
         let src = USER_CODE.as_ptr();
         let dst = USER_ENTRY as *mut u8;
         for index in 0..USER_CODE.len() {
             dst.add(index).write(src.add(index).read());
         }
+
+        crate::console::write("user: code copied\n");
 
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
@@ -47,5 +50,6 @@ pub fn init() {
         pt.add(0x0FF).write(
             ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
+        crate::console::write("user: page tables ready\n");
     }
 }
