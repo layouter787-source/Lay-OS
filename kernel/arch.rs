@@ -1,20 +1,34 @@
-//! Primitivas de baixo nível x86_64 usadas pelo kernel.
+//! Low-level x86_64 primitives used by the Lay OS kernel.
 
 #[inline(always)]
 pub unsafe fn outb(port: u16, value: u8) {
-    core::arch::asm!("out dx, al", in("dx") port, in("al") value, options(nomem, nostack, preserves_flags));
+    core::arch::asm!(
+        "out dx, al",
+        in("dx") port,
+        in("al") value,
+        options(nomem, nostack, preserves_flags)
+    );
 }
 
 #[inline(always)]
 pub unsafe fn inb(port: u16) -> u8 {
     let value: u8;
-    core::arch::asm!("in al, dx", out("al") value, in("dx") port, options(nomem, nostack, preserves_flags));
+    core::arch::asm!(
+        "in al, dx",
+        out("al") value,
+        in("dx") port,
+        options(nomem, nostack, preserves_flags)
+    );
     value
 }
 
 #[inline(always)]
 pub unsafe fn lidt(idt: &IdtPointer) {
-    core::arch::asm!("lidt [{}]", in(reg) idt, options(readonly, nostack, preserves_flags));
+    core::arch::asm!(
+        "lidt [{}]",
+        in(reg) idt,
+        options(readonly, nostack, preserves_flags)
+    );
 }
 
 #[inline(always)]
@@ -30,22 +44,6 @@ pub unsafe fn cli() {
 #[inline(always)]
 pub unsafe fn hlt() {
     core::arch::asm!("hlt", options(nomem, nostack));
-}
-
-#[inline(always)]
-pub fn current_rsp() -> usize {
-    let value: usize;
-    unsafe {
-        core::arch::asm!("mov {}, rsp", out(reg) value, options(nomem, nostack, preserves_flags));
-    }
-    value
-}
-
-#[inline(always)]
-pub unsafe fn read_cr3() -> usize {
-    let value: usize;
-    core::arch::asm!("mov {}, cr3", out(reg) value, options(nomem, nostack, preserves_flags));
-    value
 }
 
 #[repr(C, packed)]
