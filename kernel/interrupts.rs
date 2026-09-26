@@ -87,7 +87,8 @@ pub extern "C" fn timer_handler(saved_context: usize) -> usize {
 #[no_mangle]
 pub extern "C" fn keyboard_handler() {
     unsafe {
-        let _ = inb(0x60);
+        let scancode = inb(0x60);
+        crate::shell::input_scancode(scancode);
         outb(PIC1, 0x20);
     }
 }

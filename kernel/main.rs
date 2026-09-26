@@ -2,6 +2,7 @@
 #![no_main]
 
 mod arch;
+mod block;
 mod console;
 mod gdt;
 mod interrupts;
@@ -9,6 +10,9 @@ mod ipc;
 mod memory;
 mod runtime;
 mod scheduler;
+mod shell;
+mod selftest;
+mod vfs;
 mod syscalls;
 mod user;
 
@@ -24,6 +28,11 @@ pub extern "C" fn lay_kernel_main() -> ! {
 
     memory::init();
     console::write("memory: page allocator ready\n");
+
+    block::init();
+    vfs::init();
+    console::write("storage: block layer + LayFS ready\n");
+    selftest::run();
 
     user::init();
     console::write("memory: user address space ready\n");
