@@ -61,4 +61,5 @@ pub fn init() {
         );
         crate::console::write("user: page tables ready\n");
     }
-}
+}        core::arch::asm!("mov rax, cr3", "mov cr3, rax", out("rax") _, options(nostack, preserves_flags));
+
