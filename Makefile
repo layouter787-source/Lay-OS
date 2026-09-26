@@ -22,6 +22,7 @@ $(BUILD)/interrupt_stubs.o: kernel/interrupt_stubs.asm | $(BUILD)
 
 $(BUILD)/liblay_kernel.a: $(wildcard kernel/*.rs) Cargo.toml
 	RUSTFLAGS="$(RUSTFLAGS)" cargo build --release
+	cp target/release/liblay_kernel.a $@
 
 $(KERNEL_ELF): $(BUILD)/kernel_entry.o $(BUILD)/interrupt_stubs.o $(BUILD)/liblay_kernel.a kernel/linker.ld
 	ld -nostdlib -z max-page-size=0x1000 -T kernel/linker.ld -o $@ $(BUILD)/kernel_entry.o $(BUILD)/interrupt_stubs.o $(BUILD)/liblay_kernel.a
