@@ -155,22 +155,23 @@ unsafe fn load() -> bool {
 }
 
 unsafe fn save_metadata() {
-    let mut raw = [0u8; block::BLOCK_SIZE];
+    let mut all = [0u8; META_BLOCKS * block::BLOCK_SIZE];
     for mb in 0..META_BLOCKS {
-        raw = [0u8; block::BLOCK_SIZE];
         for n in 0..8 {
             let slot = mb * 8 + n;
             if slot >= MAX_FILES { break; }
-            let off = n * 64;
-            raw[off] = if ENTRIES[slot].used { 1 } else { 0 };
+            let off = mb * block::BLOCK_SIZE + n * 64;
+            all[off] = if ENTRIES[slot].used { 1 } else { 0 };
             let mut i = 0;
-            while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
-            raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
+            while i < NAME_LEN {
+                all[off + 1 + i] = ENTRIES[slot].name[i];
+                i += 1;
+            }
+            all[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        let _ = block::write(1 + mb, &raw);
     }
+    assert!(block::write_many(1, &mut all));
 }
-
 unsafe fn write_file(slot: usize, data: &[u8]) -> bool {
     let mut raw = [0u8; block::BLOCK_SIZE];
     let blocks_needed = core::cmp::max(1, (data.len() + block::BLOCK_SIZE - 1) / block::BLOCK_SIZE);
