@@ -124,7 +124,7 @@ unsafe fn format() {
             while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
             raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        assert!(block::write(1 + mb, &raw));
+        assert!(block::write(META_START + mb, &raw));
     }
 
     raw = [0u8; block::BLOCK_SIZE];
