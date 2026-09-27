@@ -60,11 +60,17 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
+    // Acknowledge the completed PIO transfer and give the device the
+    // required inter-command settling time before the first filesystem I/O.
+    let _ = crate::arch::inb(ATA_STATUS);
+    ata_delay();
     true
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
     crate::arch::outb(ATA_DRIVE, ATA_MASTER | ((lba >> 24) as u8 & 0x0F));
+    ata_delay();
+    if wait_not_busy() & ATA_ERR != 0 { return false; }
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
@@ -79,10 +85,11 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        // WRITE SECTORS completes the PIO transfer itself; do not issue a
-        // 48-bit FLUSH CACHE EXT command here. The next command must start
-        // from the normal ATA command state.
+        // WRITE SECTORS completes the PIO transfer itself. Acknowledge the
+        // final status and allow the controller to settle before the next command.
+        ata_delay();
         let status = wait_not_busy();
+        let _ = crate::arch::inb(ATA_STATUS);
         status != 0 && status & ATA_ERR == 0
     } else {
         for i in 0..256 {
@@ -111,6 +118,13 @@ unsafe fn wait_drq() -> bool {
         if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
     }
     false
+}
+
+unsafe fn ata_delay() {
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
 }
 
 unsafe fn read_data_word() -> u16 {
