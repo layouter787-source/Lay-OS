@@ -62,8 +62,7 @@ unsafe fn identify() -> bool {
     crate::arch::outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
 
     let status = wait_not_busy();
-    if status == 0 { return false; }
-    if status & ATA_ERR != 0 { return false; }
+    if status == 0 || status & ATA_ERR != 0 { return false; }
     if !wait_drq() { return false; }
 
     for _ in 0..256 {
