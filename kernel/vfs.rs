@@ -99,8 +99,10 @@ unsafe fn format() {
     block_data[..8].copy_from_slice(MAGIC);
     block_data[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
     block_data[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    let _ = block::write(0, &block_data);
+    assert!(block::write(0, &block_data));
+    crate::console::write("filesystem: superblock written\n");
     save_metadata();
+    crate::console::write("filesystem: metadata written\n");
 }
 
 unsafe fn load() -> bool {
