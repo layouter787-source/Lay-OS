@@ -1,5 +1,5 @@
-//! Persistent 512-byte block device backed by the secondary ATA/IDE disk.
-//! The boot disk remains read-only from this layer; Lay storage uses the attached data disk.
+//! Persistent 512-byte block device backed by the primary ATA/IDE disk.
+//! Lay storage uses a reserved persistent region on the boot disk.
 
 pub const BLOCK_SIZE: usize = 512;
 pub const BLOCK_COUNT: usize = 4096;
@@ -79,7 +79,9 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        crate::arch::outb(ATA_COMMAND, 0xEA);
+        // WRITE SECTORS completes the PIO transfer itself; do not issue a
+        // 48-bit FLUSH CACHE EXT command here. The next command must start
+        // from the normal ATA command state.
         let status = wait_not_busy();
         status != 0 && status & ATA_ERR == 0
     } else {
