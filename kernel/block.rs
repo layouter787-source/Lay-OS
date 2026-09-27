@@ -84,6 +84,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let lo = buffer[i * 2] as u16;
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
+            if (i & 15) == 15 { ata_delay(); }
         }
         if lba <= 2050 { crate::console::write("ata: write data\\n"); }
         let status = wait_not_busy();
