@@ -83,9 +83,8 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        crate::arch::outb(ATA_COMMAND, 0xE7);
-        ata_delay();
-        wait_not_busy() != 0
+        let status = wait_not_busy();
+        status != 0 && status & ATA_ERR == 0
     } else {
         for i in 0..256 {
             let word = read_data_word();
