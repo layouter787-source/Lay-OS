@@ -1,4 +1,4 @@
-ureal# Registro de handoff entre IAs - Lay OS
+# Registro de handoff entre IAs - Lay OS
 
 Este arquivo existe para que qualquer IA (Claude, ChatGPT, etc.) que
 continue o desenvolvimento do Lay OS saiba exatamente onde o trabalho
