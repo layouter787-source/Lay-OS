@@ -92,6 +92,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let lo = buffer[i * 2] as u16;
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
+            ata_word_delay();
         }
         crate::console::write("ata: write data done\\n");
         let immediate = crate::arch::inb(ATA_STATUS);
@@ -106,14 +107,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         crate::console::write_hex(status as usize);
         crate::console::write("\\n");
         let _ = crate::arch::inb(ATA_STATUS);
-        // Complete the 28-bit PIO write with the matching cache flush command.
-        crate::arch::outb(ATA_COMMAND, 0xE7);
-        ata_delay();
-        let flush_status = wait_not_busy();
-        let ok = status != 0
-            && status & ATA_ERR == 0
-            && flush_status != 0
-            && flush_status & ATA_ERR == 0;
+        let ok = status != 0 && status & ATA_ERR == 0;
         ok
     } else {
         for i in 0..256 {
@@ -146,13 +140,9 @@ unsafe fn wait_drq() -> bool {
     false
 }
 
-unsafe fn ata_reset_channel() {
-    crate::arch::outb(ATA_ALT_STATUS, 0x04);
-    ata_delay();
-    crate::arch::outb(ATA_ALT_STATUS, 0x00);
-    ata_delay();
-    crate::arch::outb(ATA_DRIVE, ATA_MASTER);
-    ata_delay();
+unsafe fn ata_word_delay() {
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
 }
 
 unsafe fn ata_delay() {
