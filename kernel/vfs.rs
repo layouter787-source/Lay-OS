@@ -111,7 +111,7 @@ unsafe fn format() {
     raw[..8].copy_from_slice(MAGIC);
     raw[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
     raw[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    assert!(block::write(FS_START, &raw));
+    if !block::write(FS_START, &raw) { crate::console::write("filesystem: header write failed\\n"); return; }
 
     for mb in 0..META_BLOCKS {
         raw = [0u8; block::BLOCK_SIZE];
@@ -124,16 +124,16 @@ unsafe fn format() {
             while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
             raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        assert!(block::write(META_START + mb, &raw));
+        if !block::write(META_START + mb, &raw) { crate::console::write("filesystem: metadata write failed\\n"); return; }
     }
 
     raw = [0u8; block::BLOCK_SIZE];
     raw[..25].copy_from_slice(b"LAY OS filesystem online\n");
-    assert!(block::write(DATA_START, &raw));
+    if !block::write(DATA_START, &raw) { crate::console::write("filesystem: welcome write failed\\n"); return; }
 
     raw = [0u8; block::BLOCK_SIZE];
     raw[..2].copy_from_slice(b"ok");
-    assert!(block::write(DATA_START + BLOCKS_PER_FILE, &raw));
+    if !block::write(DATA_START + BLOCKS_PER_FILE, &raw) { crate::console::write("filesystem: selftest write failed\\n"); return; }
 }
 unsafe fn load() -> bool {
     let mut header = [0u8; block::BLOCK_SIZE];
