@@ -43,3 +43,7 @@ Sistema operacional próprio, desenvolvido do zero.
 9. Atualizações, recovery e suporte ARM64
 
 O percentual é um marcador de progresso do projeto, não uma alegação de que o sistema já é um desktop completo.
+
+
+## 80% milestone
+Persistent ATA PIO block storage is validated by the QEMU CI data disk.
