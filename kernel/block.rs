@@ -60,7 +60,7 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
-    true
+    wait_not_busy() != 0
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
