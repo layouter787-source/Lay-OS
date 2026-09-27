@@ -111,7 +111,7 @@ unsafe fn format() {
     raw[..8].copy_from_slice(MAGIC);
     raw[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
     raw[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    assert!(block::write(SUPERBLOCK, &raw));
+    assert!(block::write(FS_START, &raw));
 
     for mb in 0..META_BLOCKS {
         raw = [0u8; block::BLOCK_SIZE];
