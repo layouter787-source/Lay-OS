@@ -22,19 +22,19 @@ jobs:
       - name: Build Lay OS image
         run: make
 
-      - name: Create persistent data disk
-        run: truncate -s 2M build/data.img
+      - name: Reserve persistent filesystem area
+        run: truncate -s 4M build/lay-os.img
 
       - name: Boot, write and reload persistent filesystem
         run: |
           set +e
-          timeout 15s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -drive format=raw,file=build/data.img,if=ide,index=1 -display none -monitor none -serial none -debugcon file:build/debug-first.log -no-reboot -no-shutdown
+          timeout 15s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -display none -monitor none -serial none -debugcon file:build/debug-first.log -no-reboot -no-shutdown
           test -f build/debug-first.log
           grep -F "LAY OS KERNEL ONLINE" build/debug-first.log
           grep -F "selftest: persistent LayFS initialized" build/debug-first.log
           grep -F "process: pid 1 exited status 0" build/debug-first.log
 
-          timeout 15s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -drive format=raw,file=build/data.img,if=ide,index=1 -display none -monitor none -serial none -debugcon file:build/debug-second.log -no-reboot -no-shutdown
+          timeout 15s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -display none -monitor none -serial none -debugcon file:build/debug-second.log -no-reboot -no-shutdown
           test -f build/debug-second.log
           grep -F "LAY OS KERNEL ONLINE" build/debug-second.log
           grep -F "selftest: persistent LayFS reload ok" build/debug-second.log
@@ -49,4 +49,3 @@ jobs:
             build/lay-os.img
             build/debug-first.log
             build/debug-second.log
-            build/data.img

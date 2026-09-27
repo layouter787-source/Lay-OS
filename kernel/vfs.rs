@@ -5,7 +5,7 @@ use crate::block;
 const MAX_FILES: usize = 32;
 const NAME_LEN: usize = 31;
 const FILE_SIZE: usize = 4096;
-const FS_START: usize = 7;
+const FS_START: usize = 2048;
 const META_BLOCKS: usize = 4;
 const META_START: usize = FS_START + 1;
 const DATA_START: usize = META_START + META_BLOCKS;
