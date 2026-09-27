@@ -124,6 +124,13 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     }
 }
 
+unsafe fn ata_delay() {
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    let _ = crate::arch::inb(ATA_ALT_STATUS);
+}
+
 unsafe fn wait_not_busy() -> u8 {
     let mut status = 0u8;
     for _ in 0..100_000 {
