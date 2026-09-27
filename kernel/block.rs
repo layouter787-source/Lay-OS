@@ -88,7 +88,8 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             buffer[i * 2] = word as u8;
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
-        true
+        let status = wait_not_busy();
+        status != 0 && status & ATA_ERR == 0
     }
 }
 
