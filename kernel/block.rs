@@ -68,6 +68,10 @@ unsafe fn identify() -> bool {
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
+    // Reset the primary channel before each PIO command. This clears the
+    // controller state left by the previous command and makes consecutive
+    // sector operations deterministic on QEMU and real ATA devices.
+    if !ata_reset() { return false; }
     crate::arch::outb(ATA_DRIVE, ATA_MASTER | ((lba >> 24) as u8 & 0x0F));
     ata_delay();
     if wait_not_busy() & ATA_ERR != 0 { return false; }
@@ -119,6 +123,15 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         let ok = status != 0 && status & ATA_ERR == 0;
         ok
     }
+}
+
+unsafe fn ata_reset() -> bool {
+    crate::arch::outb(ATA_ALT_STATUS, 0x04);
+    ata_delay();
+    crate::arch::outb(ATA_ALT_STATUS, 0x00);
+    ata_delay();
+    let status = wait_not_busy();
+    status != 0 && status & ATA_ERR == 0
 }
 
 unsafe fn wait_not_busy() -> u8 {
