@@ -17,6 +17,7 @@ const ATA_SLAVE: u8 = 0xF0;
 const ATA_CMD_READ: u8 = 0x20;
 const ATA_CMD_WRITE: u8 = 0x30;
 const ATA_CMD_IDENTIFY: u8 = 0xEC;
+const ATA_CMD_FLUSH: u8 = 0xE7;
 const ATA_BSY: u8 = 0x80;
 const ATA_DRQ: u8 = 0x08;
 const ATA_ERR: u8 = 0x01;
@@ -92,8 +93,13 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8]) -> bool {
         }
         if sector + 1 < sectors && !wait_drq() { return false; }
     }
+    ata_delay();
     let status = wait_not_busy();
-    status != 0 && status & ATA_ERR == 0
+    if status == 0 || status & ATA_ERR != 0 { return false; }
+    crate::arch::outb(ATA_COMMAND, ATA_CMD_FLUSH);
+    ata_delay();
+    let flush_status = wait_not_busy();
+    flush_status != 0 && flush_status & ATA_ERR == 0
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
