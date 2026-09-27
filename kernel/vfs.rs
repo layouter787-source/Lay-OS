@@ -101,30 +101,34 @@ pub fn list<F: FnMut(&str)>(mut visitor: F) {
 }
 
 unsafe fn format() {
-    let mut block_data = [0u8; block::BLOCK_SIZE];
-    block_data[..8].copy_from_slice(MAGIC);
-    block_data[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
-    block_data[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    assert!(block::write(FS_START, &block_data));
-
-    ENTRIES[0].used = true;
-    ENTRIES[0].len = 25;
-    ENTRIES[0].name[..12].copy_from_slice(b"/welcome.txt");
-    ENTRIES[1].used = true;
-    ENTRIES[1].len = 2;
-    ENTRIES[1].name[..13].copy_from_slice(b"/selftest.txt");
-
-    save_metadata();
-
-    let welcome = b"LAY OS filesystem online\n";
     let mut raw = [0u8; block::BLOCK_SIZE];
-    raw[..welcome.len()].copy_from_slice(welcome);
+    raw[..8].copy_from_slice(MAGIC);
+    raw[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
+    raw[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
+    assert!(block::write(0, &raw));
+
+    for mb in 0..META_BLOCKS {
+        raw = [0u8; block::BLOCK_SIZE];
+        for n in 0..8 {
+            let slot = mb * 8 + n;
+            if slot >= MAX_FILES { break; }
+            let off = n * 64;
+            raw[off] = if ENTRIES[slot].used { 1 } else { 0 };
+            let mut i = 0;
+            while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
+            raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
+        }
+        assert!(block::write(1 + mb, &raw));
+    }
+
+    raw = [0u8; block::BLOCK_SIZE];
+    raw[..25].copy_from_slice(b"LAY OS filesystem online\n");
     assert!(block::write(DATA_START, &raw));
+
     raw = [0u8; block::BLOCK_SIZE];
     raw[..2].copy_from_slice(b"ok");
     assert!(block::write(DATA_START + BLOCKS_PER_FILE, &raw));
 }
-
 unsafe fn load() -> bool {
     let mut header = [0u8; block::BLOCK_SIZE];
     if !block::read(FS_START, &mut header) { return false; }
@@ -148,22 +152,19 @@ unsafe fn load() -> bool {
 }
 
 unsafe fn save_metadata() {
-    let mut all = [0u8; META_BLOCKS * block::BLOCK_SIZE];
     for mb in 0..META_BLOCKS {
+        let mut raw = [0u8; block::BLOCK_SIZE];
         for n in 0..8 {
             let slot = mb * 8 + n;
             if slot >= MAX_FILES { break; }
-            let off = mb * block::BLOCK_SIZE + n * 64;
-            all[off] = if ENTRIES[slot].used { 1 } else { 0 };
+            let off = n * 64;
+            raw[off] = if ENTRIES[slot].used { 1 } else { 0 };
             let mut i = 0;
-            while i < NAME_LEN {
-                all[off + 1 + i] = ENTRIES[slot].name[i];
-                i += 1;
-            }
-            all[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
+            while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
+            raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
+        if !block::write(1 + mb, &raw) { return; }
     }
-    assert!(block::write_many(1, &mut all));
 }
 unsafe fn write_file(slot: usize, data: &[u8]) -> bool {
     let mut raw = [0u8; block::BLOCK_SIZE];
