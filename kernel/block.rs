@@ -104,11 +104,13 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8]) -> bool {
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
+    ata_delay();
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
+    ata_delay();
 
     if !wait_drq() { return false; }
 
@@ -118,8 +120,13 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
+        ata_delay();
         let status = wait_not_busy();
-        status != 0 && status & ATA_ERR == 0
+        if status == 0 || status & ATA_ERR != 0 { return false; }
+        crate::arch::outb(ATA_COMMAND, ATA_CMD_FLUSH);
+        ata_delay();
+        let flush_status = wait_not_busy();
+        flush_status != 0 && flush_status & ATA_ERR == 0
     } else {
         for i in 0..256 {
             let word = read_data_word();
