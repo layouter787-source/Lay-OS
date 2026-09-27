@@ -80,7 +80,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
 
     if !wait_drq() {
         crate::console::write("ata: DRQ timeout status=");
-        crate::console::write_hex(crate::arch::inb(ATA_STATUS) as u64);
+        crate::console::write_hex(crate::arch::inb(ATA_STATUS) as usize);
         crate::console::write("\\n");
         return false;
     }
