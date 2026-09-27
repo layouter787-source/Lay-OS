@@ -138,7 +138,8 @@ unsafe fn save_metadata() {
 
 unsafe fn write_file(slot: usize, data: &[u8]) -> bool {
     let mut raw = [0u8; block::BLOCK_SIZE];
-    for b in 0..BLOCKS_PER_FILE {
+    let blocks_needed = core::cmp::max(1, (data.len() + block::BLOCK_SIZE - 1) / block::BLOCK_SIZE);
+    for b in 0..blocks_needed {
         raw = [0u8; block::BLOCK_SIZE];
         let start = b * block::BLOCK_SIZE;
         let end = core::cmp::min(start + block::BLOCK_SIZE, data.len());
