@@ -168,7 +168,7 @@ unsafe fn save_metadata() {
     for mb in 0..META_BLOCKS {
         let base = mb * block::BLOCK_SIZE;
         let dst = &mut FORMAT_BUFFER[base..base + block::BLOCK_SIZE];
-        *dst = [0u8; block::BLOCK_SIZE];
+        dst.fill(0);
         for n in 0..8 {
             let slot = mb * 8 + n;
             if slot >= MAX_FILES { break; }
