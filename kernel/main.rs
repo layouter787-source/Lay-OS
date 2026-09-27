@@ -28,7 +28,9 @@ pub extern "C" fn lay_kernel_main() -> ! {
     console::write("gdt: kernel + user + tss ok\n");
 
     memory::init();
-    console::write("memory: page allocator ready\n");
+    console::write("memory: page allocator ready (");
+    console::write_dec(memory::total_bytes() / 1024);
+    console::write(" KiB usable)\n");
 
     block::init();
     vfs::init();

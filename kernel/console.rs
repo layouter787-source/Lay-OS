@@ -47,3 +47,22 @@ pub fn write_hex(mut value: usize) {
         shift -= 4;
     }
 }
+
+/// Prints an unsigned value in decimal, no leading zeros.
+pub fn write_dec(mut value: usize) {
+    if value == 0 {
+        put_byte(b'0');
+        return;
+    }
+    let mut buf = [0u8; 20];
+    let mut n = 0;
+    while value > 0 {
+        buf[n] = b'0' + (value % 10) as u8;
+        n += 1;
+        value /= 10;
+    }
+    while n > 0 {
+        n -= 1;
+        put_byte(buf[n]);
+    }
+}

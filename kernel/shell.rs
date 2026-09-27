@@ -1,6 +1,6 @@
 //! Minimal keyboard-driven Lay Shell.
 
-use crate::{console, vfs};
+use crate::{console, memory, vfs};
 
 const INPUT_SIZE: usize = 128;
 static mut INPUT: [u8; INPUT_SIZE] = [0; INPUT_SIZE];
@@ -44,9 +44,17 @@ fn prompt() { console::write("lay> "); }
 
 fn execute(command: &[u8]) {
     if command == b"help" {
-        console::write("help  ls  cat /welcome.txt  write /file text\n");
+        console::write("help  ls  cat /welcome.txt  write /file text  meminfo\n");
     } else if command == b"ls" {
         vfs::list(|name| { console::write(name); console::write("\n"); });
+    } else if command == b"meminfo" {
+        console::write("total=");
+        console::write_dec(memory::total_bytes() / 1024);
+        console::write("KiB used=");
+        console::write_dec(memory::used_bytes() / 1024);
+        console::write("KiB free=");
+        console::write_dec(memory::free_bytes() / 1024);
+        console::write("KiB\n");
     } else if command.starts_with(b"cat ") {
         let mut buffer = [0u8; 4096];
         match core::str::from_utf8(&command[4..]) {

@@ -54,6 +54,8 @@ load_loop:
     cmp word [remaining], 0
     jne load_loop
 
+    call detect_memory
+
     in al, 0x92
     or al, 0x02
     out 0x92, al
@@ -79,6 +81,43 @@ disk_error:
     cli
     hlt
     jmp .halt
+
+; Detects available RAM via BIOS INT 0x15, EAX=0xE820 while still in real
+; mode (DS=ES=0 from boot start, so linear == physical for these writes).
+; Writes:
+;   0x8FF0 (word)  -> number of entries found (0 if unsupported/failed)
+;   0x9000 (bytes) -> up to 64 raw 24-byte E820 entries, back to back
+; See docs/MEMORY_MAP.md for the full contract read by kernel/memory.rs.
+detect_memory:
+    mov di, 0x9000
+    xor ebx, ebx
+    xor bp, bp
+    mov edx, 0x0534D4150
+.e820lp:
+    mov eax, 0xe820
+    mov ecx, 24
+    int 0x15
+    jc .e820done
+    cmp eax, 0x0534D4150
+    jne .e820done
+    cmp cl, 20
+    jbe .e820ok
+    test byte [di + 20], 1
+    je .e820skip
+.e820ok:
+    mov ecx, [di + 8]
+    or ecx, [di + 12]
+    jz .e820skip
+    inc bp
+    add di, 24
+    cmp bp, 64
+    jae .e820done
+.e820skip:
+    test ebx, ebx
+    jnz .e820lp
+.e820done:
+    mov [0x8FF0], bp
+    ret
 
 bits 32
 protected_mode:
