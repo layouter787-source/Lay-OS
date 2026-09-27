@@ -73,7 +73,13 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
     if lba == 2048 { crate::console::write("ata: w2048 drq?\\n"); }
-    if !wait_drq() { return false; }
+    let drq_status = wait_drq_status();
+    if lba == 2048 {
+        crate::console::write("ata: w2048 status=");
+        crate::console::write_hex(drq_status as usize);
+        crate::console::write("\\n");
+    }
+    if drq_status & ATA_DRQ == 0 || drq_status & ATA_ERR != 0 { return false; }
     if lba == 2048 { crate::console::write("ata: w2048 drq\\n"); }
 
     if write {
@@ -111,13 +117,16 @@ unsafe fn wait_not_busy() -> u8 {
     status
 }
 
-unsafe fn wait_drq() -> bool {
+unsafe fn wait_drq() -> bool { wait_drq_status() & ATA_DRQ != 0 }
+
+unsafe fn wait_drq_status() -> u8 {
+    let mut status = 0u8;
     for _ in 0..100_000 {
-        let status = crate::arch::inb(ATA_STATUS);
-        if status & ATA_ERR != 0 { return false; }
-        if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
+        status = crate::arch::inb(ATA_STATUS);
+        if status & ATA_ERR != 0 { return status; }
+        if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return status; }
     }
-    false
+    status
 }
 
 unsafe fn ata_reset() {
