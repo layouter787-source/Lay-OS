@@ -32,7 +32,11 @@ pub extern "C" fn lay_kernel_main() -> ! {
 
     block::init();
     vfs::init();
-    console::write("storage: block layer + LayFS ready\n");
+    if block::available() {
+        console::write("storage: ATA persistent block layer + LayFS ready\n");
+    } else {
+        console::write("storage: ATA disk unavailable\n");
+    }
     selftest::run();
 
     process::init();
