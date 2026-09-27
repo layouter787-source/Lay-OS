@@ -1,5 +1,8 @@
 //! First protected user address space.
 //! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
+//! The third-level page table (PT) is now obtained from the real page
+//! allocator (`memory::alloc_page`) instead of a hardcoded physical
+//! address, now that the allocator reflects the firmware memory map.
 
 pub const USER_ENTRY: usize = 0x0040_0000;
 pub const USER_STACK_TOP: usize = 0x0050_0000;
@@ -7,7 +10,6 @@ pub const USER_STACK_TOP: usize = 0x0050_0000;
 const PML4: usize = 0x0010_0000;
 const PDPT: usize = 0x0010_1000;
 const PD: usize = 0x0010_2000;
-const PT: usize = 0x0010_3000;
 
 const PTE_PRESENT: u64 = 1;
 const PTE_RW: u64 = 2;
@@ -42,18 +44,28 @@ pub fn init() {
         }
         crate::console::write("user: code copied\n");
 
+        // The PT frame used to be a hardcoded physical address (0x103000,
+        // right after the boot loader's own page tables). It now comes
+        // from the real frame allocator: memory::init() has already run
+        // by the time user::init() executes (see kernel/main.rs), and the
+        // returned frame is guaranteed to be outside the reserved
+        // boot/kernel region and identity-mapped by the first-1-GiB
+        // mapping the boot loader already set up.
+        let pt = crate::memory::alloc_page()
+            .expect("user: out of memory allocating the user page table");
+
         (PML4 as *mut u64).write((PDPT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         (PDPT as *mut u64).write((PD as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
         // 0x0040_0000 belongs to the third 2 MiB region: PD index 2.
-        (PD as *mut u64).add(2).write((PT as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+        (PD as *mut u64).add(2).write((pt as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
 
-        let pt = PT as *mut u64;
+        let pt_ptr = pt as *mut u64;
         for index in 0..512 {
-            pt.add(index).write(0);
+            pt_ptr.add(index).write(0);
         }
 
-        pt.add(0).write((USER_ENTRY as u64) | PTE_PRESENT | PTE_USER);
-        pt.add(0x0FF).write(
+        pt_ptr.add(0).write((USER_ENTRY as u64) | PTE_PRESENT | PTE_USER);
+        pt_ptr.add(0x0FF).write(
             ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
         );
 
