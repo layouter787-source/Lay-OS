@@ -106,8 +106,14 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         crate::console::write_hex(status as usize);
         crate::console::write("\\n");
         let _ = crate::arch::inb(ATA_STATUS);
-        let ok = status != 0 && status & ATA_ERR == 0;
-        ata_reset_channel();
+        // Complete the 28-bit PIO write with the matching cache flush command.
+        crate::arch::outb(ATA_COMMAND, 0xE7);
+        ata_delay();
+        let flush_status = wait_not_busy();
+        let ok = status != 0
+            && status & ATA_ERR == 0
+            && flush_status != 0
+            && flush_status & ATA_ERR == 0;
         ok
     } else {
         for i in 0..256 {
