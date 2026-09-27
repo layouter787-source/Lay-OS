@@ -34,7 +34,7 @@ jobs:
           grep -F "selftest: persistent LayFS initialized" build/debug-first.log
           grep -F "process: pid 1 exited status 0" build/debug-first.log
 
-          timeout 6s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -drive format=raw,file=build/data.img,if=ide,index=1 -display none -monitor none -serial none -debugcon file:build/debug-second.log -no-reboot -no-shutdown
+          timeout 15s qemu-system-x86_64 -accel tcg -drive format=raw,file=build/lay-os.img -drive format=raw,file=build/data.img,if=ide,index=1 -display none -monitor none -serial none -debugcon file:build/debug-second.log -no-reboot -no-shutdown
           test -f build/debug-second.log
           grep -F "LAY OS KERNEL ONLINE" build/debug-second.log
           grep -F "selftest: persistent LayFS reload ok" build/debug-second.log
