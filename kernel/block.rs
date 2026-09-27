@@ -60,10 +60,13 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
-    true
+    let status = wait_not_busy();
+    status != 0 && status & ATA_ERR == 0
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
+    let idle = wait_not_busy();
+    if idle == 0 || idle & ATA_ERR != 0 { return false; }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
@@ -87,7 +90,8 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             buffer[i * 2] = word as u8;
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
-        true
+        let status = wait_not_busy();
+        status != 0 && status & ATA_ERR == 0
     }
 }
 
