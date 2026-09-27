@@ -35,14 +35,15 @@ pub fn read(block: usize, out: &mut [u8; BLOCK_SIZE]) -> bool {
 }
 
 pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
-    write_many(block, input)
+    let mut buffer = *input;
+    write_many(block, &mut buffer)
 }
 
 pub fn read_many(start: usize, out: &mut [u8]) -> bool {
     transfer_many(start, out, false)
 }
 
-pub fn write_many(start: usize, input: &[u8]) -> bool {
+pub fn write_many(start: usize, input: &mut [u8]) -> bool {
     transfer_many(start, input, true)
 }
 
