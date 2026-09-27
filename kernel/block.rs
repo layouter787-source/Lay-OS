@@ -103,6 +103,7 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8]) -> bool {
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
+    if write { ata_reset(); }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     ata_delay();
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
@@ -136,6 +137,13 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         let status = wait_not_busy();
         status != 0 && status & ATA_ERR == 0
     }
+}
+
+unsafe fn ata_reset() {
+    crate::arch::outb(ATA_ALT_STATUS, 0x04);
+    for _ in 0..4 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
+    crate::arch::outb(ATA_ALT_STATUS, 0x00);
+    let _ = wait_not_busy();
 }
 
 unsafe fn ata_delay() {
