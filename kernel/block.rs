@@ -86,7 +86,11 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         let status = wait_not_busy();
         if lba == 2048 { crate::console::write("ata: w2048 done\\n"); }
         ata_delay();
-        status != 0 && status & ATA_ERR == 0
+        if status != 0 && status & ATA_ERR == 0 {
+            ata_reset();
+            return true;
+        }
+        false
     } else {
         for i in 0..256 {
             let word = read_data_word();
@@ -114,6 +118,14 @@ unsafe fn wait_drq() -> bool {
         if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
     }
     false
+}
+
+unsafe fn ata_reset() {
+    crate::arch::outb(ATA_ALT_STATUS, 0x04);
+    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
+    crate::arch::outb(ATA_ALT_STATUS, 0x00);
+    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
+    let _ = wait_not_busy();
 }
 
 unsafe fn ata_delay() {
