@@ -17,7 +17,6 @@ const ATA_SLAVE: u8 = 0xF0;
 const ATA_CMD_READ: u8 = 0x20;
 const ATA_CMD_WRITE: u8 = 0x30;
 const ATA_CMD_IDENTIFY: u8 = 0xEC;
-const ATA_CMD_FLUSH: u8 = 0xE7;
 const ATA_BSY: u8 = 0x80;
 const ATA_DRQ: u8 = 0x08;
 const ATA_ERR: u8 = 0x01;
@@ -32,14 +31,6 @@ pub fn init() {
 
 pub fn available() -> bool {
     unsafe { READY }
-}
-
-
-pub fn write_many(start: usize, input: &mut [u8]) -> bool {
-    if input.is_empty() || input.len() % BLOCK_SIZE != 0 { return false; }
-    let count = input.len() / BLOCK_SIZE;
-    if start >= BLOCK_COUNT || count > 127 || start + count > BLOCK_COUNT || !available() { return false; }
-    unsafe { ata_transfer_many(start as u32, input) }
 }
 
 pub fn read(block: usize, out: &mut [u8; BLOCK_SIZE]) -> bool {
@@ -62,55 +53,23 @@ unsafe fn identify() -> bool {
     crate::arch::outb(ATA_COMMAND, ATA_CMD_IDENTIFY);
 
     let status = wait_not_busy();
-    if status == 0 || status & ATA_ERR != 0 { return false; }
+    if status == 0 { return false; }
+    if status & ATA_ERR != 0 { return false; }
     if !wait_drq() { return false; }
 
     for _ in 0..256 {
         let _ = read_data_word();
     }
-    ata_delay();
     true
 }
 
-
-unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8]) -> bool {
-    let sectors = buffer.len() / BLOCK_SIZE;
-    crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
-    crate::arch::outb(ATA_SECTOR_COUNT, sectors as u8);
-    crate::arch::outb(ATA_LBA0, lba as u8);
-    crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
-    crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
-    crate::arch::outb(ATA_COMMAND, ATA_CMD_WRITE);
-    if !wait_drq() { return false; }
-
-    for sector in 0..sectors {
-        let base = sector * BLOCK_SIZE;
-        for i in 0..256 {
-            let lo = buffer[base + i * 2] as u16;
-            let hi = (buffer[base + i * 2 + 1] as u16) << 8;
-            write_data_word(lo | hi);
-        }
-        if sector + 1 < sectors && !wait_drq() { return false; }
-    }
-    ata_delay();
-    let status = wait_not_busy();
-    if status == 0 || status & ATA_ERR != 0 { return false; }
-    crate::arch::outb(ATA_COMMAND, ATA_CMD_FLUSH);
-    ata_delay();
-    let flush_status = wait_not_busy();
-    flush_status != 0 && flush_status & ATA_ERR == 0
-}
-
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    if write { ata_reset(); if !identify() { return false; } }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
-    ata_delay();
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
-    ata_delay();
 
     if !wait_drq() { return false; }
 
@@ -120,36 +79,16 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        ata_delay();
-        let status = wait_not_busy();
-        if status == 0 || status & ATA_ERR != 0 { return false; }
-        crate::arch::outb(ATA_COMMAND, ATA_CMD_FLUSH);
-        ata_delay();
-        let flush_status = wait_not_busy();
-        flush_status != 0 && flush_status & ATA_ERR == 0
+        crate::arch::outb(ATA_COMMAND, 0xE7);
+        wait_not_busy() != 0
     } else {
         for i in 0..256 {
             let word = read_data_word();
             buffer[i * 2] = word as u8;
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
-        let status = wait_not_busy();
-        status != 0 && status & ATA_ERR == 0
+        true
     }
-}
-
-unsafe fn ata_reset() {
-    crate::arch::outb(ATA_ALT_STATUS, 0x04);
-    for _ in 0..16 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
-    crate::arch::outb(ATA_ALT_STATUS, 0x00);
-    ata_delay();
-}
-
-unsafe fn ata_delay() {
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
 }
 
 unsafe fn wait_not_busy() -> u8 {
