@@ -83,6 +83,7 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8], write: bool) -> bool {
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
     if !wait_drq() { return false; }
+    if write && sectors_for_log(lba) { crate::console::write("ata: multi drq0\\n"); }
 
     let count = buffer.len() / BLOCK_SIZE;
     for sector in 0..count {
@@ -100,11 +101,20 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8], write: bool) -> bool {
                 buffer[base + i * 2 + 1] = (word >> 8) as u8;
             }
         }
-        if sector + 1 < count && !wait_drq() { return false; }
+        if sector + 1 < count {
+            if write && sector == 0 { crate::console::write("ata: multi sector0 done\\n"); }
+            if !wait_drq() { return false; }
+            if write && sector == 0 { crate::console::write("ata: multi drq1\\n"); }
+        }
     }
 
-    wait_not_busy_ok()
+    let ok = wait_not_busy_ok();
+    if write && sectors_for_log(lba) { crate::console::write(if ok { "ata: multi complete\\n" } else { "ata: multi wait-fail\\n" }); }
+    ok
 }
+
+fn sectors_for_log(lba: u32) -> bool { lba == FS_DEBUG_LBA }
+const FS_DEBUG_LBA: u32 = 7;
 
 unsafe fn wait_not_busy_ok() -> bool {
     let mut status = 0u8;
