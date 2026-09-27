@@ -30,12 +30,8 @@ pub extern "C" fn lay_kernel_main() -> ! {
     memory::init();
     console::write("memory: page allocator ready\n");
 
-    console::write("storage: probing ATA...\n");
     block::init();
-    console::write("storage: ATA probe complete\n");
-    console::write("filesystem: loading LayFS...\n");
     vfs::init();
-    console::write("filesystem: LayFS load complete\n");
     if block::available() {
         console::write("storage: ATA persistent block layer + LayFS ready\n");
     } else {

@@ -40,8 +40,7 @@ pub fn read(block: usize, out: &mut [u8; BLOCK_SIZE]) -> bool {
 
 pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
     if block >= BLOCK_COUNT || !available() { return false; }
-    let mut buffer = *input;
-    unsafe { ata_transfer(block as u32, &mut buffer, true) }
+    unsafe { ata_transfer(block as u32, input, true) }
 }
 
 unsafe fn identify() -> bool {

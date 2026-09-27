@@ -47,7 +47,3 @@ O percentual é um marcador de progresso do projeto, não uma alegação de que 
 
 ## 80% milestone
 Persistent ATA PIO block storage is validated by the QEMU CI data disk.
-
-## CI trigger
-QEMU persistent-storage smoke test trigger.
-
