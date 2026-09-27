@@ -5,8 +5,10 @@ use crate::block;
 const MAX_FILES: usize = 32;
 const NAME_LEN: usize = 31;
 const FILE_SIZE: usize = 4096;
+const FS_START: usize = 8;
 const META_BLOCKS: usize = 4;
-const DATA_START: usize = 1 + META_BLOCKS;
+const META_START: usize = FS_START + 1;
+const DATA_START: usize = META_START + META_BLOCKS;
 const BLOCKS_PER_FILE: usize = FILE_SIZE / block::BLOCK_SIZE;
 const MAGIC: &[u8; 8] = b"LAYFS01\0";
 
@@ -114,7 +116,7 @@ unsafe fn format() {
     for slot in 0..MAX_FILES {
         let mb = slot / 8;
         let n = slot % 8;
-        let off = 1 * block::BLOCK_SIZE + mb * block::BLOCK_SIZE + n * 64;
+        let off = block::BLOCK_SIZE + mb * block::BLOCK_SIZE + n * 64;
         FORMAT_BUFFER[off] = if ENTRIES[slot].used { 1 } else { 0 };
         let mut i = 0;
         while i < NAME_LEN { FORMAT_BUFFER[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
@@ -127,17 +129,17 @@ unsafe fn format() {
     let selftest_off = (DATA_START + BLOCKS_PER_FILE) * block::BLOCK_SIZE;
     FORMAT_BUFFER[selftest_off..selftest_off + 2].copy_from_slice(b"ok");
 
-    assert!(block::write_many(0, &mut FORMAT_BUFFER));
+    assert!(block::write_many(FS_START, &mut FORMAT_BUFFER));
 }
 
 unsafe fn load() -> bool {
     let mut header = [0u8; block::BLOCK_SIZE];
-    if !block::read(0, &mut header) { return false; }
+    if !block::read(FS_START, &mut header) { return false; }
     if &header[..8] != MAGIC { return false; }
 
     let mut raw = [0u8; block::BLOCK_SIZE];
     for mb in 0..META_BLOCKS {
-        if !block::read(1 + mb, &mut raw) { return false; }
+        if !block::read(META_START + mb, &mut raw) { return false; }
         for n in 0..8 {
             let slot = mb * 8 + n;
             let off = n * 64;
