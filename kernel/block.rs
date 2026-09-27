@@ -117,7 +117,6 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         }
         let status = wait_not_busy();
         let ok = status != 0 && status & ATA_ERR == 0;
-        ata_reset_channel();
         ok
     }
 }
