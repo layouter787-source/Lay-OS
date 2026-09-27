@@ -60,37 +60,27 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
-    wait_not_busy() != 0
+    true
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    if write { ata_reset(); if !identify() { return false; } }
-    crate::arch::outb(ATA_DRIVE, ATA_MASTER | ((lba >> 24) as u8 & 0x0F));
-    ata_delay();
+    crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
-    if lba <= 2050 { crate::console::write("ata: write drq? lba="); crate::console::write_hex(lba as usize); crate::console::write("\\n"); }
-    let drq_status = wait_drq_status();
-    if lba <= 2050 { crate::console::write("ata: write status="); crate::console::write_hex(drq_status as usize); crate::console::write("\\n"); }
-    if drq_status & ATA_DRQ == 0 || drq_status & ATA_ERR != 0 { return false; }
-    ata_delay();
-    if lba <= 2050 { crate::console::write("ata: write drq\\n"); }
+    if !wait_drq() { return false; }
 
     if write {
         for i in 0..256 {
             let lo = buffer[i * 2] as u16;
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
-            if (i & 15) == 15 { ata_delay(); }
         }
-        if lba <= 2050 { crate::console::write("ata: write data\\n"); }
+        crate::arch::outb(ATA_COMMAND, 0xEA);
         let status = wait_not_busy();
-        if lba <= 2050 { crate::console::write("ata: write done\\n"); }
-        ata_delay();
         status != 0 && status & ATA_ERR == 0
     } else {
         for i in 0..256 {
@@ -98,8 +88,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             buffer[i * 2] = word as u8;
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
-        let status = wait_not_busy();
-        status != 0 && status & ATA_ERR == 0
+        true
     }
 }
 
@@ -112,31 +101,13 @@ unsafe fn wait_not_busy() -> u8 {
     status
 }
 
-unsafe fn wait_drq() -> bool { wait_drq_status() & ATA_DRQ != 0 }
-
-unsafe fn wait_drq_status() -> u8 {
-    let mut status = 0u8;
+unsafe fn wait_drq() -> bool {
     for _ in 0..100_000 {
-        status = crate::arch::inb(ATA_STATUS);
-        if status & ATA_ERR != 0 { return status; }
-        if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return status; }
+        let status = crate::arch::inb(ATA_STATUS);
+        if status & ATA_ERR != 0 { return false; }
+        if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
     }
-    status
-}
-
-unsafe fn ata_reset() {
-    crate::arch::outb(ATA_ALT_STATUS, 0x04);
-    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
-    crate::arch::outb(ATA_ALT_STATUS, 0x00);
-    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
-    let _ = wait_not_busy();
-}
-
-unsafe fn ata_delay() {
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
-    let _ = crate::arch::inb(ATA_ALT_STATUS);
+    false
 }
 
 unsafe fn read_data_word() -> u16 {
