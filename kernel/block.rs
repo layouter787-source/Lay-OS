@@ -103,7 +103,7 @@ unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8]) -> bool {
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    if write { ata_reset(); }
+    if write { ata_reset(); if !identify() { return false; } }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     ata_delay();
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
