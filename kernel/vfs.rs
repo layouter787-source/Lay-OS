@@ -107,50 +107,57 @@ pub fn list<F: FnMut(&str)>(mut visitor: F) {
 }
 
 unsafe fn format() {
-    let mut raw = [0u8; block::BLOCK_SIZE];
+    FORMAT_BUFFER = [0u8; FORMAT_BLOCKS * block::BLOCK_SIZE];
+
+    let raw = &mut FORMAT_BUFFER[..];
     raw[..8].copy_from_slice(MAGIC);
     raw[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
     raw[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    assert!(block::write(FS_START, &raw));
 
     for mb in 0..META_BLOCKS {
-        raw = [0u8; block::BLOCK_SIZE];
+        let base = (1 + mb) * block::BLOCK_SIZE;
         for n in 0..8 {
             let slot = mb * 8 + n;
             if slot >= MAX_FILES { break; }
-            let off = n * 64;
+            let off = base + n * 64;
             raw[off] = if ENTRIES[slot].used { 1 } else { 0 };
             let mut i = 0;
-            while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
+            while i < NAME_LEN {
+                raw[off + 1 + i] = ENTRIES[slot].name[i];
+                i += 1;
+            }
             raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        assert!(block::write(META_START + mb, &raw));
     }
 
-    raw = [0u8; block::BLOCK_SIZE];
-    raw[..25].copy_from_slice(b"LAY OS filesystem online\n");
-    assert!(block::write(DATA_START, &raw));
+    let welcome = (DATA_START - FS_START) * block::BLOCK_SIZE;
+    raw[welcome..welcome + 25].copy_from_slice(b"LAY OS filesystem online\\n");
+    let selftest = (DATA_START + BLOCKS_PER_FILE - FS_START) * block::BLOCK_SIZE;
+    raw[selftest..selftest + 2].copy_from_slice(b"ok");
 
-    raw = [0u8; block::BLOCK_SIZE];
-    raw[..2].copy_from_slice(b"ok");
-    assert!(block::write(DATA_START + BLOCKS_PER_FILE, &raw));
+    assert!(block::write_many(FS_START, &raw[..FORMAT_BLOCKS * block::BLOCK_SIZE]));
 }
-unsafe fn load() -> bool {
-    let mut header = [0u8; block::BLOCK_SIZE];
-    if !block::read(FS_START, &mut header) { return false; }
-    if &header[..8] != MAGIC { return false; }
 
-    let mut raw = [0u8; block::BLOCK_SIZE];
+unsafe fn load() -> bool {
+    let blocks = 1 + META_BLOCKS;
+    FORMAT_BUFFER = [0u8; FORMAT_BLOCKS * block::BLOCK_SIZE];
+    if !block::read_many(FS_START, &mut FORMAT_BUFFER[..blocks * block::BLOCK_SIZE]) { return false; }
+    let raw = &FORMAT_BUFFER[..];
+
+    if &raw[..8] != MAGIC { return false; }
     for mb in 0..META_BLOCKS {
-        if !block::read(META_START + mb, &mut raw) { return false; }
+        let base = (1 + mb) * block::BLOCK_SIZE;
         for n in 0..8 {
             let slot = mb * 8 + n;
-            let off = n * 64;
             if slot >= MAX_FILES { break; }
+            let off = base + n * 64;
             ENTRIES[slot].used = raw[off] != 0;
             ENTRIES[slot].len = u32::from_le_bytes([raw[off + 32], raw[off + 33], raw[off + 34], raw[off + 35]]) as usize;
             let mut i = 0;
-            while i < NAME_LEN { ENTRIES[slot].name[i] = raw[off + 1 + i]; i += 1; }
+            while i < NAME_LEN {
+                ENTRIES[slot].name[i] = raw[off + 1 + i];
+                i += 1;
+            }
             if ENTRIES[slot].len > FILE_SIZE { return false; }
         }
     }
@@ -159,41 +166,38 @@ unsafe fn load() -> bool {
 
 unsafe fn save_metadata() {
     for mb in 0..META_BLOCKS {
-        let mut raw = [0u8; block::BLOCK_SIZE];
+        let base = mb * block::BLOCK_SIZE;
+        let dst = &mut FORMAT_BUFFER[base..base + block::BLOCK_SIZE];
+        *dst = [0u8; block::BLOCK_SIZE];
         for n in 0..8 {
             let slot = mb * 8 + n;
             if slot >= MAX_FILES { break; }
             let off = n * 64;
-            raw[off] = if ENTRIES[slot].used { 1 } else { 0 };
+            dst[off] = if ENTRIES[slot].used { 1 } else { 0 };
             let mut i = 0;
-            while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
-            raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
+            while i < NAME_LEN {
+                dst[off + 1 + i] = ENTRIES[slot].name[i];
+                i += 1;
+            }
+            dst[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        if !block::write(META_START + mb, &raw) { return; }
     }
+    let _ = block::write_many(META_START, &mut FORMAT_BUFFER[..META_BLOCKS * block::BLOCK_SIZE]);
 }
+
 unsafe fn write_file(slot: usize, data: &[u8]) -> bool {
-    let mut raw = [0u8; block::BLOCK_SIZE];
     let blocks_needed = core::cmp::max(1, (data.len() + block::BLOCK_SIZE - 1) / block::BLOCK_SIZE);
-    for b in 0..blocks_needed {
-        raw = [0u8; block::BLOCK_SIZE];
-        let start = b * block::BLOCK_SIZE;
-        let end = core::cmp::min(start + block::BLOCK_SIZE, data.len());
-        if start < end { raw[..end - start].copy_from_slice(&data[start..end]); }
-        if !block::write(DATA_START + slot * BLOCKS_PER_FILE + b, &raw) { return false; }
-    }
-    true
+    FORMAT_BUFFER[..blocks_needed * block::BLOCK_SIZE].fill(0);
+    FORMAT_BUFFER[..data.len()].copy_from_slice(data);
+    block::write_many(DATA_START + slot * BLOCKS_PER_FILE, &mut FORMAT_BUFFER[..blocks_needed * block::BLOCK_SIZE])
 }
 
 unsafe fn read_file(slot: usize, out: &mut [u8]) -> bool {
-    let mut raw = [0u8; block::BLOCK_SIZE];
-    for b in 0..BLOCKS_PER_FILE {
-        let start = b * block::BLOCK_SIZE;
-        if start >= out.len() { break; }
-        if !block::read(DATA_START + slot * BLOCKS_PER_FILE + b, &mut raw) { return false; }
-        let end = core::cmp::min(start + block::BLOCK_SIZE, out.len());
-        out[start..end].copy_from_slice(&raw[..end - start]);
-    }
+    let blocks_needed = core::cmp::max(1, (out.len() + block::BLOCK_SIZE - 1) / block::BLOCK_SIZE);
+    if blocks_needed > BLOCKS_PER_FILE { return false; }
+    let mut raw = [0u8; FILE_SIZE];
+    if !block::read_many(DATA_START + slot * BLOCKS_PER_FILE, &mut raw[..blocks_needed * block::BLOCK_SIZE]) { return false; }
+    out.copy_from_slice(&raw[..out.len()]);
     true
 }
 
