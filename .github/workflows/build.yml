@@ -2,7 +2,7 @@ name: Lay OS build
 
 on:
   push:
-    branches: [main, progress-90]
+    branches: [main, progress-90, progress-92]
   pull_request:
 
 jobs:
