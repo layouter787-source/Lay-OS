@@ -85,7 +85,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         let status = wait_not_busy();
         if lba == 7 {
             crate::console::write("ata: write7 status=");
-            crate::console::write_hex(status as u64);
+            crate::console::write_hex(status as usize);
             crate::console::write("\\n");
         }
         status != 0 && status & ATA_ERR == 0
