@@ -109,12 +109,9 @@ unsafe fn wait_drq() -> bool {
 }
 
 unsafe fn read_data_word() -> u16 {
-    let lo = crate::arch::inb(ATA_DATA) as u16;
-    let hi = crate::arch::inb(ATA_DATA + 1) as u16;
-    lo | (hi << 8)
+    crate::arch::inw(ATA_DATA)
 }
 
 unsafe fn write_data_word(value: u16) {
-    crate::arch::outb(ATA_DATA, value as u8);
-    crate::arch::outb(ATA_DATA + 1, (value >> 8) as u8);
+    crate::arch::outw(ATA_DATA, value)
 }
