@@ -54,8 +54,7 @@ pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
 
 unsafe fn identify() -> bool {
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE);
-    ata_delay();
-    crate::arch::outb(ATA_SECTOR_COUNT, 0);
+        crate::arch::outb(ATA_SECTOR_COUNT, 0);
     crate::arch::outb(ATA_LBA0, 0);
     crate::arch::outb(ATA_LBA1, 0);
     crate::arch::outb(ATA_LBA2, 0);
