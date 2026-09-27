@@ -29,10 +29,12 @@ pub fn init() {
         READY = false;
         FRESH = false;
         ENTRIES = [EMPTY; MAX_FILES];
+        crate::console::write("filesystem: reading superblock...\n");
         if load() {
             READY = true;
             return;
         }
+        crate::console::write("filesystem: formatting...\n");
         format();
         FRESH = true;
         READY = true;
