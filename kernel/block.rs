@@ -38,6 +38,14 @@ pub fn read(block: usize, out: &mut [u8; BLOCK_SIZE]) -> bool {
     unsafe { ata_transfer(block as u32, out, false) }
 }
 
+
+pub fn write_many(start: usize, input: &mut [u8]) -> bool {
+    if input.is_empty() || input.len() % BLOCK_SIZE != 0 { return false; }
+    let count = input.len() / BLOCK_SIZE;
+    if start >= BLOCK_COUNT || count > 127 || start + count > BLOCK_COUNT || !available() { return false; }
+    unsafe { ata_transfer_many(start as u32, input, true) }
+}
+
 pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
     if block >= BLOCK_COUNT || !available() { return false; }
     let mut buffer = *input;
@@ -63,6 +71,37 @@ unsafe fn identify() -> bool {
         let _ = read_data_word();
     }
     true
+}
+
+
+unsafe fn ata_transfer_many(lba: u32, buffer: &mut [u8], write: bool) -> bool {
+    let sectors = buffer.len() / BLOCK_SIZE;
+    crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
+    ata_delay();
+    crate::arch::outb(ATA_SECTOR_COUNT, sectors as u8);
+    crate::arch::outb(ATA_LBA0, lba as u8);
+    crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
+    crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
+    crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
+    ata_delay();
+
+    for sector in 0..sectors {
+        if !wait_drq() { return false; }
+        let base = sector * BLOCK_SIZE;
+        for i in 0..256 {
+            if write {
+                let lo = buffer[base + i * 2] as u16;
+                let hi = (buffer[base + i * 2 + 1] as u16) << 8;
+                write_data_word(lo | hi);
+            } else {
+                let word = read_data_word();
+                buffer[base + i * 2] = word as u8;
+                buffer[base + i * 2 + 1] = (word >> 8) as u8;
+            }
+        }
+    }
+    let status = wait_not_busy();
+    status != 0 && status & ATA_ERR == 0
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
