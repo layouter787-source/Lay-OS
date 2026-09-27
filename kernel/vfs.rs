@@ -25,13 +25,19 @@ pub fn init() {
     unsafe {
         READY = false;
         ENTRIES = [EMPTY; MAX_FILES];
+        crate::console::write("filesystem: reading superblock...\n");
         if load() {
+            crate::console::write("filesystem: superblock valid\n");
             READY = true;
             return;
         }
+        crate::console::write("filesystem: formatting...\n");
         format();
+        crate::console::write("filesystem: format complete\n");
         READY = true;
+        crate::console::write("filesystem: creating welcome...\n");
         let _ = create("/welcome.txt", b"LAY OS filesystem online\n");
+        crate::console::write("filesystem: welcome complete\n");
     }
 }
 
