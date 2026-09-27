@@ -19,8 +19,8 @@ pub fn run() {
     assert!(vfs::read("/selftest.txt", &mut data) == Some(2));
     assert!(data == *b"ok");
 
-    let mut welcome = [0u8; 25];
-    assert!(vfs::read("/welcome.txt", &mut welcome) == Some(25));
+    let mut welcome = [0u8; 24];
+    assert!(vfs::read("/welcome.txt", &mut welcome) == Some(24));
     assert!(&welcome == b"LAY OS filesystem online\n");
 
     if vfs::fresh_format() {
