@@ -68,6 +68,7 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
+    ata_delay();
     true
 }
 
