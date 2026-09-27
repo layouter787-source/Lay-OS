@@ -106,7 +106,9 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
         crate::console::write_hex(status as usize);
         crate::console::write("\\n");
         let _ = crate::arch::inb(ATA_STATUS);
-        status != 0 && status & ATA_ERR == 0
+        let ok = status != 0 && status & ATA_ERR == 0;
+        ata_reset_channel();
+        ok
     } else {
         for i in 0..256 {
             let word = read_data_word();
@@ -114,7 +116,9 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
         let status = wait_not_busy();
-        status != 0 && status & ATA_ERR == 0
+        let ok = status != 0 && status & ATA_ERR == 0;
+        ata_reset_channel();
+        ok
     }
 }
 
@@ -134,6 +138,15 @@ unsafe fn wait_drq() -> bool {
         if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
     }
     false
+}
+
+unsafe fn ata_reset_channel() {
+    crate::arch::outb(ATA_ALT_STATUS, 0x04);
+    ata_delay();
+    crate::arch::outb(ATA_ALT_STATUS, 0x00);
+    ata_delay();
+    crate::arch::outb(ATA_DRIVE, ATA_MASTER);
+    ata_delay();
 }
 
 unsafe fn ata_delay() {
