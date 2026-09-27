@@ -88,6 +88,11 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
+        if lba == 7 { crate::console::write("ata: write7 data\\n"); }
+        let status = wait_not_busy();
+        if lba == 7 { crate::console::write("ata: write7 idle2\\n"); }
+        if status == 0 || status & ATA_ERR != 0 { return false; }
+        crate::console::write("");
         crate::arch::outb(ATA_COMMAND, 0xE7);
         wait_not_busy() != 0
     } else {
