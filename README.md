@@ -50,3 +50,4 @@ Persistent ATA PIO block storage is validated by the QEMU CI data disk.
 
 ## CI trigger
 QEMU persistent-storage smoke test trigger.
+
