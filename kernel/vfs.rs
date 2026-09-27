@@ -20,25 +20,31 @@ struct Entry {
 const EMPTY: Entry = Entry { used: false, name: [0; NAME_LEN], len: 0 };
 static mut ENTRIES: [Entry; MAX_FILES] = [EMPTY; MAX_FILES];
 static mut READY: bool = false;
+static mut FRESH: bool = false;
+const FORMAT_BLOCKS: usize = DATA_START + 2 * BLOCKS_PER_FILE;
+static mut FORMAT_BUFFER: [u8; FORMAT_BLOCKS * block::BLOCK_SIZE] = [0; FORMAT_BLOCKS * block::BLOCK_SIZE];
 
 pub fn init() {
     unsafe {
         READY = false;
+        FRESH = false;
         ENTRIES = [EMPTY; MAX_FILES];
-        crate::console::write("filesystem: reading superblock...\n");
         if load() {
-            crate::console::write("filesystem: superblock valid\n");
             READY = true;
             return;
         }
-        crate::console::write("filesystem: formatting...\n");
         format();
-        crate::console::write("filesystem: format complete\n");
+        FRESH = true;
         READY = true;
-        crate::console::write("filesystem: creating welcome...\n");
-        let _ = create("/welcome.txt", b"LAY OS filesystem online\n");
-        crate::console::write("filesystem: welcome complete\n");
     }
+}
+
+pub fn persistent() -> bool {
+    unsafe { READY }
+}
+
+pub fn fresh_format() -> bool {
+    unsafe { FRESH }
 }
 
 pub fn persistent() -> bool {
@@ -95,14 +101,35 @@ pub fn list<F: FnMut(&str)>(mut visitor: F) {
 }
 
 unsafe fn format() {
-    let mut block_data = [0u8; block::BLOCK_SIZE];
-    block_data[..8].copy_from_slice(MAGIC);
-    block_data[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
-    block_data[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
-    assert!(block::write(0, &block_data));
-    crate::console::write("filesystem: superblock written\n");
-    save_metadata();
-    crate::console::write("filesystem: metadata written\n");
+    FORMAT_BUFFER = [0u8; FORMAT_BLOCKS * block::BLOCK_SIZE];
+    FORMAT_BUFFER[..8].copy_from_slice(MAGIC);
+    FORMAT_BUFFER[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
+    FORMAT_BUFFER[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
+
+    ENTRIES[0].used = true;
+    ENTRIES[0].len = b"LAY OS filesystem online\n".len();
+    ENTRIES[0].name[..12].copy_from_slice(b"/welcome.txt");
+    ENTRIES[1].used = true;
+    ENTRIES[1].len = 2;
+    ENTRIES[1].name[..13].copy_from_slice(b"/selftest.txt");
+
+    for slot in 0..MAX_FILES {
+        let mb = slot / 8;
+        let n = slot % 8;
+        let off = 1 * block::BLOCK_SIZE + mb * block::BLOCK_SIZE + n * 64;
+        FORMAT_BUFFER[off] = if ENTRIES[slot].used { 1 } else { 0 };
+        let mut i = 0;
+        while i < NAME_LEN { FORMAT_BUFFER[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
+        FORMAT_BUFFER[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
+    }
+
+    let welcome = b"LAY OS filesystem online\n";
+    let welcome_off = DATA_START * block::BLOCK_SIZE;
+    FORMAT_BUFFER[welcome_off..welcome_off + welcome.len()].copy_from_slice(welcome);
+    let selftest_off = (DATA_START + BLOCKS_PER_FILE) * block::BLOCK_SIZE;
+    FORMAT_BUFFER[selftest_off..selftest_off + 2].copy_from_slice(b"ok");
+
+    assert!(block::write_many(0, &mut FORMAT_BUFFER));
 }
 
 unsafe fn load() -> bool {
