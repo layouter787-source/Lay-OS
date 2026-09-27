@@ -75,9 +75,16 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
+    crate::console::write(if write { "ata: write cmd\\n" } else { "ata: read cmd\\n" });
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
-    if !wait_drq() { return false; }
+    if !wait_drq() {
+        crate::console::write("ata: DRQ timeout status=");
+        crate::console::write_hex(crate::arch::inb(ATA_STATUS) as u64);
+        crate::console::write("\\n");
+        return false;
+    }
+    if write { crate::console::write("ata: write DRQ\\n"); }
 
     if write {
         for i in 0..256 {
