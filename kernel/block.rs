@@ -93,9 +93,9 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
     if !wait_drq() {
-        crate::console::write(if write { "ata: write DRQ timeout
-" } else { "ata: read DRQ timeout
-" });
+        crate::console::write(if write { "ata: write DRQ timeout lba=" } else { "ata: read DRQ timeout lba=" });
+        crate::console::write_hex(lba as u64);
+        crate::console::write("\\n");
         return false;
     }
 
