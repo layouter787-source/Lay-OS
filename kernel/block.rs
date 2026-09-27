@@ -92,10 +92,18 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
+        crate::console::write("ata: write data done\\n");
+        let immediate = crate::arch::inb(ATA_STATUS);
+        crate::console::write("ata: post-write status=");
+        crate::console::write_hex(immediate as usize);
+        crate::console::write("\\n");
         // WRITE SECTORS completes the PIO transfer itself. Acknowledge the
         // final status and allow the controller to settle before the next command.
         ata_delay();
         let status = wait_not_busy();
+        crate::console::write("ata: write wait status=");
+        crate::console::write_hex(status as usize);
+        crate::console::write("\\n");
         let _ = crate::arch::inb(ATA_STATUS);
         status != 0 && status & ATA_ERR == 0
     } else {
