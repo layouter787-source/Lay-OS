@@ -169,7 +169,7 @@ unsafe fn save_metadata() {
             while i < NAME_LEN { raw[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
             raw[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
         }
-        if !block::write(1 + mb, &raw) { return; }
+        if !block::write(META_START + mb, &raw) { return; }
     }
 }
 unsafe fn write_file(slot: usize, data: &[u8]) -> bool {
