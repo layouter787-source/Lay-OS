@@ -13,7 +13,7 @@ const ATA_DRIVE: u16 = 0x1F6;
 const ATA_STATUS: u16 = 0x1F7;
 const ATA_COMMAND: u16 = 0x1F7;
 const ATA_ALT_STATUS: u16 = 0x3F6;
-const ATA_SLAVE: u8 = 0xF0;
+const ATA_MASTER: u8 = 0xE0;
 const ATA_CMD_READ: u8 = 0x20;
 const ATA_CMD_WRITE: u8 = 0x30;
 const ATA_CMD_IDENTIFY: u8 = 0xEC;
@@ -45,7 +45,7 @@ pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
 }
 
 unsafe fn identify() -> bool {
-    crate::arch::outb(ATA_DRIVE, ATA_SLAVE);
+    crate::arch::outb(ATA_DRIVE, ATA_MASTER);
     crate::arch::outb(ATA_SECTOR_COUNT, 0);
     crate::arch::outb(ATA_LBA0, 0);
     crate::arch::outb(ATA_LBA1, 0);
@@ -64,7 +64,6 @@ unsafe fn identify() -> bool {
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    if write { ata_reset(); }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
@@ -108,14 +107,6 @@ unsafe fn wait_drq() -> bool {
         if status & ATA_BSY == 0 && status & ATA_DRQ != 0 { return true; }
     }
     false
-}
-
-unsafe fn ata_reset() {
-    crate::arch::outb(ATA_ALT_STATUS, 0x04);
-    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
-    crate::arch::outb(ATA_ALT_STATUS, 0x00);
-    for _ in 0..5000 { let _ = crate::arch::inb(ATA_ALT_STATUS); }
-    let _ = wait_not_busy();
 }
 
 unsafe fn read_data_word() -> u16 {
