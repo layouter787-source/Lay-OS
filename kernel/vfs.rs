@@ -47,10 +47,6 @@ pub fn fresh_format() -> bool {
     unsafe { FRESH }
 }
 
-pub fn persistent() -> bool {
-    unsafe { READY }
-}
-
 pub fn create(path: &str, data: &[u8]) -> bool {
     if data.len() > FILE_SIZE || !valid_path(path) { return false; }
     unsafe {
