@@ -35,10 +35,7 @@ pub fn available() -> bool {
 
 pub fn read(block: usize, out: &mut [u8; BLOCK_SIZE]) -> bool {
     if block >= BLOCK_COUNT || !available() { return false; }
-    if block == 7 { crate::console::write("ata: read7 start\\n"); }
-    let ok = unsafe { ata_transfer(block as u32, out, false) };
-    if block == 7 { crate::console::write(if ok { "ata: read7 done\\n" } else { "ata: read7 fail\\n" }); }
-    ok
+    unsafe { ata_transfer(block as u32, out, false) }
 }
 
 pub fn write(block: usize, input: &[u8; BLOCK_SIZE]) -> bool {
@@ -63,13 +60,12 @@ unsafe fn identify() -> bool {
     for _ in 0..256 {
         let _ = read_data_word();
     }
-    let status = wait_not_busy();
+    let status = wait_complete();
     status != 0 && status & ATA_ERR == 0
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    let idle = wait_not_busy();
-    if lba == 7 { crate::console::write("ata: read7 idle\\n"); }
+    let idle = wait_complete();
     if idle == 0 || idle & ATA_ERR != 0 { return false; }
     crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
@@ -78,9 +74,7 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
-    if lba == 7 { crate::console::write("ata: read7 wait-drq\\n"); }
     if !wait_drq() { return false; }
-    if lba == 7 { crate::console::write("ata: read7 drq\\n"); }
 
     if write {
         for i in 0..256 {
@@ -88,20 +82,15 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        if lba == 7 { crate::console::write("ata: write7 data\\n"); }
-        let status = wait_not_busy();
-        if lba == 7 { crate::console::write("ata: write7 idle2\\n"); }
-        if status == 0 || status & ATA_ERR != 0 { return false; }
-        true
+        let status = wait_complete();
+        status != 0 && status & ATA_ERR == 0
     } else {
         for i in 0..256 {
             let word = read_data_word();
             buffer[i * 2] = word as u8;
             buffer[i * 2 + 1] = (word >> 8) as u8;
         }
-        if lba == 7 { crate::console::write("ata: read7 data\\n"); }
-        let status = wait_not_busy();
-        if lba == 7 { crate::console::write("ata: read7 idle2\\n"); }
+        let status = wait_complete();
         status != 0 && status & ATA_ERR == 0
     }
 }
@@ -111,6 +100,16 @@ unsafe fn wait_not_busy() -> u8 {
     for _ in 0..100_000 {
         status = crate::arch::inb(ATA_STATUS);
         if status & ATA_BSY == 0 { break; }
+    }
+    status
+}
+
+unsafe fn wait_complete() -> u8 {
+    let mut status = 0u8;
+    for _ in 0..100_000 {
+        status = crate::arch::inb(ATA_STATUS);
+        if status & ATA_ERR != 0 { return status; }
+        if status & ATA_BSY == 0 && status & ATA_DRQ == 0 { return status; }
     }
     status
 }
