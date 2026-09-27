@@ -37,6 +37,12 @@ pub fn init() {
             return;
         }
         crate::console::write("filesystem: formatting...\n");
+        ENTRIES[0].used = true;
+        ENTRIES[0].len = 25;
+        ENTRIES[0].name[..12].copy_from_slice(b"/welcome.txt");
+        ENTRIES[1].used = true;
+        ENTRIES[1].len = 2;
+        ENTRIES[1].name[..13].copy_from_slice(b"/selftest.txt");
         format();
         FRESH = true;
         READY = true;
