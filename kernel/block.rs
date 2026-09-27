@@ -11,7 +11,7 @@ const ATA_LBA1: u16 = 0x1F4;
 const ATA_LBA2: u16 = 0x1F5;
 const ATA_DRIVE: u16 = 0x1F6;
 const ATA_STATUS: u16 = 0x1F7;
-const ATA_COMMAND: u16 = 0x177;
+const ATA_COMMAND: u16 = 0x1F7;
 const ATA_ALT_STATUS: u16 = 0x3F6;
 const ATA_SLAVE: u8 = 0xF0;
 const ATA_CMD_READ: u8 = 0x20;
@@ -64,7 +64,7 @@ unsafe fn identify() -> bool {
 }
 
 unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> bool {
-    crate::arch::outb(ATA_DRIVE, ATA_MASTER | ((lba >> 24) as u8 & 0x0F));
+    crate::arch::outb(ATA_DRIVE, ATA_SLAVE | ((lba >> 24) as u8 & 0x0F));
     crate::arch::outb(ATA_SECTOR_COUNT, 1);
     crate::arch::outb(ATA_LBA0, lba as u8);
     crate::arch::outb(ATA_LBA1, (lba >> 8) as u8);
