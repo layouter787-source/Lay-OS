@@ -72,15 +72,11 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
     crate::arch::outb(ATA_LBA2, (lba >> 16) as u8);
     crate::arch::outb(ATA_COMMAND, if write { ATA_CMD_WRITE } else { ATA_CMD_READ });
 
-    if lba == 2048 { crate::console::write("ata: w2048 drq?\\n"); }
+    if lba <= 2050 { crate::console::write("ata: write drq? lba="); crate::console::write_hex(lba as usize); crate::console::write("\\n"); }
     let drq_status = wait_drq_status();
-    if lba == 2048 {
-        crate::console::write("ata: w2048 status=");
-        crate::console::write_hex(drq_status as usize);
-        crate::console::write("\\n");
-    }
+    if lba <= 2050 { crate::console::write("ata: write status="); crate::console::write_hex(drq_status as usize); crate::console::write("\\n"); }
     if drq_status & ATA_DRQ == 0 || drq_status & ATA_ERR != 0 { return false; }
-    if lba == 2048 { crate::console::write("ata: w2048 drq\\n"); }
+    if lba <= 2050 { crate::console::write("ata: write drq\\n"); }
 
     if write {
         for i in 0..256 {
@@ -88,9 +84,9 @@ unsafe fn ata_transfer(lba: u32, buffer: &mut [u8; BLOCK_SIZE], write: bool) -> 
             let hi = (buffer[i * 2 + 1] as u16) << 8;
             write_data_word(lo | hi);
         }
-        if lba == 2048 { crate::console::write("ata: w2048 data\\n"); }
+        if lba <= 2050 { crate::console::write("ata: write data\\n"); }
         let status = wait_not_busy();
-        if lba == 2048 { crate::console::write("ata: w2048 done\\n"); }
+        if lba <= 2050 { crate::console::write("ata: write done\\n"); }
         ata_delay();
         if status != 0 && status & ATA_ERR == 0 {
             ata_reset();
