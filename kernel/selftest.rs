@@ -14,10 +14,14 @@ pub fn run() {
     assert!(block::read(7, &mut block_out));
     assert!(block_out[0] == 0x4C && block_out[1] == 0x41 && block_out[2] == 0x59);
 
-    assert!(vfs::create("/selftest.txt", b"ok"));
     let mut data = [0u8; 2];
-    assert!(vfs::read("/selftest.txt", &mut data) == Some(2));
-    assert!(data == *b"ok");
-
-    console::write("selftest: persistent ATA + filesystem ok\n");
+    if vfs::create("/selftest.txt", b"ok") {
+        assert!(vfs::read("/selftest.txt", &mut data) == Some(2));
+        assert!(data == *b"ok");
+        console::write("selftest: persistent LayFS initialized\n");
+    } else {
+        assert!(vfs::read("/selftest.txt", &mut data) == Some(2));
+        assert!(data == *b"ok");
+        console::write("selftest: persistent LayFS reload ok\n");
+    }
 }
