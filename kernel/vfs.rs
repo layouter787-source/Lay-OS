@@ -135,7 +135,7 @@ unsafe fn format() {
     let selftest = (DATA_START + BLOCKS_PER_FILE - FS_START) * block::BLOCK_SIZE;
     raw[selftest..selftest + 2].copy_from_slice(b"ok");
 
-    assert!(block::write_many(FS_START, &raw[..FORMAT_BLOCKS * block::BLOCK_SIZE]));
+    assert!(block::write_many(FS_START, &mut raw[..FORMAT_BLOCKS * block::BLOCK_SIZE]));
 }
 
 unsafe fn load() -> bool {
