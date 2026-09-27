@@ -21,7 +21,7 @@ pub fn run() {
 
     let mut welcome = [0u8; 25];
     assert!(vfs::read("/welcome.txt", &mut welcome) == Some(25));
-    assert!(&welcome == b"LAY OS filesystem online\n");
+    assert!(&welcome[..] == b"LAY OS filesystem online\n");
 
     if vfs::fresh_format() {
         console::write("selftest: persistent LayFS initialized\n");
