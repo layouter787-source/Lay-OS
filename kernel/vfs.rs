@@ -101,35 +101,28 @@ pub fn list<F: FnMut(&str)>(mut visitor: F) {
 }
 
 unsafe fn format() {
-    FORMAT_BUFFER = [0u8; FORMAT_BLOCKS * block::BLOCK_SIZE];
-    FORMAT_BUFFER[..8].copy_from_slice(MAGIC);
-    FORMAT_BUFFER[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
-    FORMAT_BUFFER[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
+    let mut block_data = [0u8; block::BLOCK_SIZE];
+    block_data[..8].copy_from_slice(MAGIC);
+    block_data[8..12].copy_from_slice(&(block::BLOCK_SIZE as u32).to_le_bytes());
+    block_data[12..16].copy_from_slice(&(MAX_FILES as u32).to_le_bytes());
+    assert!(block::write(FS_START, &block_data));
 
     ENTRIES[0].used = true;
-    ENTRIES[0].len = b"LAY OS filesystem online\n".len();
+    ENTRIES[0].len = 25;
     ENTRIES[0].name[..12].copy_from_slice(b"/welcome.txt");
     ENTRIES[1].used = true;
     ENTRIES[1].len = 2;
     ENTRIES[1].name[..13].copy_from_slice(b"/selftest.txt");
 
-    for slot in 0..MAX_FILES {
-        let mb = slot / 8;
-        let n = slot % 8;
-        let off = block::BLOCK_SIZE + mb * block::BLOCK_SIZE + n * 64;
-        FORMAT_BUFFER[off] = if ENTRIES[slot].used { 1 } else { 0 };
-        let mut i = 0;
-        while i < NAME_LEN { FORMAT_BUFFER[off + 1 + i] = ENTRIES[slot].name[i]; i += 1; }
-        FORMAT_BUFFER[off + 32..off + 36].copy_from_slice(&(ENTRIES[slot].len as u32).to_le_bytes());
-    }
+    save_metadata();
 
     let welcome = b"LAY OS filesystem online\n";
-    let welcome_off = DATA_START * block::BLOCK_SIZE;
-    FORMAT_BUFFER[welcome_off..welcome_off + welcome.len()].copy_from_slice(welcome);
-    let selftest_off = (DATA_START + BLOCKS_PER_FILE) * block::BLOCK_SIZE;
-    FORMAT_BUFFER[selftest_off..selftest_off + 2].copy_from_slice(b"ok");
-
-    assert!(block::write_many(FS_START, &mut FORMAT_BUFFER));
+    let mut raw = [0u8; block::BLOCK_SIZE];
+    raw[..welcome.len()].copy_from_slice(welcome);
+    assert!(block::write(DATA_START, &raw));
+    raw = [0u8; block::BLOCK_SIZE];
+    raw[..2].copy_from_slice(b"ok");
+    assert!(block::write(DATA_START + BLOCKS_PER_FILE, &raw));
 }
 
 unsafe fn load() -> bool {
