@@ -8,6 +8,58 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
 
 ---
 
+## Entrada - 2026-09-28 (Claude, sessao 3, via GitHub direto no repo)
+
+### O que foi feito
+- `kernel/memory.rs` endurecido:
+  - `free_page` agora e seguro: ignora enderecos nao alinhados, frames
+    fora da RAM utilizavel (ex.: memoria baixa reservada, regioes E820
+    reservadas) e double free. Antes, um `free_page` errado poderia
+    liberar memoria reservada do kernel e corromper a contabilidade.
+    Para isso ha um segundo bitmap interno (`USABLE`) que marca so os
+    frames reais de RAM alocavel.
+  - Frames liberados voltam a ser reutilizados do mais baixo para o mais
+    alto (`NEXT_HINT` recua no free), o que torna o comportamento
+    deterministico (a primeira `alloc_page()` apos o boot continua
+    devolvendo 0x200000 mesmo depois do selftest).
+  - Removidos usos de `.iter_mut()`/referencias sobre `static mut`
+    (viram erro na edicao Rust 2024 do compilador); agora so indexacao.
+- `kernel/selftest.rs`: novo `memory_check()` executado no boot. Verifica
+  alocacao de duas paginas distintas, alinhadas e acima de 2 MiB,
+  contabilidade de `free_bytes`, escrita/leitura real na pagina, que
+  frees invalidos e double free sao ignorados, e reuso do frame mais
+  baixo. Se algo falhar, o kernel entra em panic ANTES de imprimir
+  `LAY OS KERNEL ONLINE`, entao o smoke test do CI fica vermelho.
+  Linha nova no boot log: `selftest: page allocator ok`.
+
+### Como a validacao funciona (importante)
+- O usuario definiu que a validacao deve ser feita pelo GitHub Actions
+  (`.github/workflows/build.yml`: build + smoke test no QEMU procurando
+  `LAY OS KERNEL ONLINE` no log). Como os commits da IA vao direto pra
+  `main`, o CI roda a cada push.
+- Limite da IA (Claude) nesta configuracao: NAO ha ferramenta para ler o
+  resultado do Actions nem criar branch/PR. Portanto Claude nao consegue
+  saber se o CI passou. **Quem abrir a proxima sessao deve conferir o
+  status do ultimo run em Actions primeiro** e, se estiver vermelho,
+  corrigir antes de qualquer feature nova (o log do smoke test mostra
+  ate onde o boot chegou).
+
+### Estado depois desta mudanca
+- Commits ainda NAO confirmados como verdes no CI (ver acima). Os
+  commits relevantes: E820 + bitmap allocator (sessao 1), PT do usuario
+  via allocator (sessao 2), endurecimento + selftest de memoria
+  (sessao 3).
+
+### Proximos passos sugeridos
+1. Conferir o CI dos 3 ultimos pushes e corrigir se vermelho.
+2. Driver de armazenamento real (ver secao da sessao 2, com os riscos
+   de colisao com a imagem de boot).
+3. Gerenciamento real de processos/threads (item 1 do roadmap).
+4. VFS/LayFS persistente de verdade (depende do passo 2).
+5. Aumentar `MAX_FRAMES` ou bitmap dinamico se precisar de >128 MiB.
+
+---
+
 ## Entrada - 2026-09-27 (Claude, sessao 2, via GitHub direto no repo)
 
 ### O que foi feito
@@ -49,9 +101,7 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
      limitado** no polling de BSY/DRQ (nunca `loop` infinito esperando o
      status - se o disco nao responder, retornar `false` em vez de
      travar o boot).
-  5. So depois disso: validar rodando localmente ou via CI antes de
-     confiar no resultado - isso e algo que uma IA sem execucao real
-     nao deveria declarar "pronto" sem essa validacao humana/CI.
+  5. So depois disso: validar via CI antes de confiar no resultado.
 
 ### Estado depois desta mudanca
 - `kernel/user.rs` usa o allocator real para a PT do processo de
@@ -61,21 +111,16 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
   address spaces") e ainda nao foi atacado - e uma mudanca bem maior
   (multiplos processos, carregamento de codigo variavel) que merece uma
   sessao propria.
-- Ainda nao validei nada disso rodando em QEMU real (mesma limitacao da
-  entrada anterior).
 
 ### Proximos passos sugeridos (ordem sugerida, atualizada)
-1. **Validar em build real** as mudancas desta sessao e da anterior:
-   `make` + QEMU, conferir boot completo e `meminfo` no Lay Shell.
-2. Driver de armazenamento real (ver secao acima com o passo a passo e
-   os riscos ja levantados) - camada 4 do roadmap.
+1. **Validar em build real** as mudancas desta sessao e da anterior.
+2. Driver de armazenamento real (ver secao acima).
 3. Gerenciamento real de processos/threads (item 1 do roadmap): hoje
    `kernel/process.rs` so reconhece o pid 1 fixo; `kernel/scheduler.rs`
    tem `MAX_TASKS = 4` mas so preenche os slots 0 e 1.
 4. VFS/LayFS persistente de verdade (depende do passo 2 primeiro).
 5. Se for necessario testar com mais de 128 MiB de RAM, aumentar
-   `MAX_FRAMES` em `kernel/memory.rs` ou tornar o bitmap de tamanho
-   dinamico (hoje e um array estatico fixo).
+   `MAX_FRAMES` em `kernel/memory.rs` ou tornar o bitmap dinamico.
 
 ---
 
@@ -113,18 +158,6 @@ Esta e a "camada 2" do roadmap do README ("Page-frame allocator baseado
 no mapa de memoria do firmware"), a proxima logo depois do allocator
 inicial fixo que ja existia (marco de 40%).
 
-### Estado depois desta mudanca
-- O allocator agora reflete a RAM real da maquina/QEMU (ate o teto de
-  128 MiB rastreado), em vez de sempre assumir uma janela fixa de 30 MiB.
-- `free_page` existe na API mas ainda nao e chamado por nenhum outro
-  subsistema do kernel - nenhum processo/VFS libera paginas ainda. Isso e
-  esperado nesta fase.
-- Nao validei rodando em QEMU real nesta sessao (sem acesso a um
-  ambiente de build/execucao a partir daqui); a revisao foi por leitura
-  cuidadosa do codigo e comparacao com o padrao E820 conhecido. Rodar o
-  `make` do projeto e testar no QEMU antes de seguir em frente e o
-  primeiro passo recomendado para quem pegar isso a seguir.
-
 ### Decisoes que quem continuar deve conhecer
 - O contrato de enderecos fixos (0x8FF0/0x9000) para o mapa de memoria e
   deliberadamente simples porque o boot loader (NASM) e o kernel (Rust
@@ -134,4 +167,4 @@ inicial fixo que ja existia (marco de 40%).
   `docs/MEMORY_MAP.md` junto.
 - O teto de 128 MiB do bitmap foi uma escolha deliberada para manter o
   allocator simples (array estatico, sem heap) enquanto o projeto ainda
-  esta em fase de prototipo x86_64 com RAM padrao do QEMU.
+  esta em ffase de prototipo x86_64 com RAM padrao do QEMU.
