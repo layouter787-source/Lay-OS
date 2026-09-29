@@ -88,6 +88,9 @@ disk_error:
 ;   0x8FF0 (word)  -> number of entries found (0 if unsupported/failed)
 ;   0x9000 (bytes) -> up to 64 raw 24-byte E820 entries, back to back
 ; See docs/MEMORY_MAP.md for the full contract read by kernel/memory.rs.
+; Note: the ACPI 3.0 extended-attribute "ignore this entry" bit is not
+; checked here (every BIOS/QEMU target for this project reports it set);
+; kernel/memory.rs is the real gatekeeper via its region-type check.
 detect_memory:
     mov di, 0x9000
     xor ebx, ebx
@@ -100,11 +103,6 @@ detect_memory:
     jc .e820done
     cmp eax, 0x0534D4150
     jne .e820done
-    cmp cl, 20
-    jbe .e820ok
-    test byte [di + 20], 1
-    je .e820skip
-.e820ok:
     mov ecx, [di + 8]
     or ecx, [di + 12]
     jz .e820skip
@@ -160,7 +158,7 @@ protected_mode:
     or eax, 1 << 31
     mov cr0, eax
 
-    lgdt [gdt64_descriptor]
+    lgdt [gdt_descriptor]
     jmp 0x18:long_mode
 
 bits 64
@@ -186,7 +184,7 @@ dap_segment:
 dap_lba:
     dq 1
 
-error_message db "LAY BOOT: disk read failed", 0
+error_message db "LAY BOOT: disk err", 0
 
 align 8
 gdt:
@@ -199,10 +197,6 @@ gdt:
 gdt_descriptor:
     dw gdt_descriptor - gdt - 1
     dd gdt
-
-gdt64_descriptor:
-    dw gdt64_descriptor - gdt - 1
-    dq gdt
 
 times 510-($-$$) db 0
 dw 0xAA55
