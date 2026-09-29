@@ -8,23 +8,75 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
 
 ---
 
+## Entrada - 2026-09-29 (Claude, sessao 5, via GitHub direto no repo)
+
+### CI estava vermelho desde a sessao 1 - causa raiz encontrada e corrigida
+O usuario aplicou a mao a atualizacao pendente do `build.yml` (sessao 4)
+no commit `098f09c`, e o Actions mostrou o erro de verdade: o `make`
+falhava na montagem do boot loader com
+`boot/boot.asm:207: error: TIMES value -18 is negative`. Ou seja, o
+setor de boot passou de 512 bytes assim que a rotina `detect_memory`
+(E820) foi adicionada na sessao 1 - **todo commit desde entao (sessoes
+1 a 4) nunca chegou a rodar o kernel de verdade no CI**, so falhava na
+montagem do `.asm`. Eu nao tinha como ver isso sem a ferramenta de
+Actions; so descobri quando o usuario mandou prints da tela do Actions.
+
+Corrigido no commit `e68cc45` (`boot/boot.asm`), sem tirar nenhuma
+funcionalidade, cortando ~30 bytes do setor de boot:
+- `detect_memory`: removida a checagem do bit de atributo ACPI 3.0
+  estendido (bit0 de `[di+20]`). Todo BIOS/QEMU usado aqui reporta esse
+  bit setado; o filtro de verdade (tipo de regiao == 1) continua no
+  kernel (`kernel/memory.rs`).
+- Removido `gdt64_descriptor`, que era uma copia byte-a-byte de
+  `gdt_descriptor` apontando pra mesma tabela. Os dois `lgdt` (modo
+  protegido e modo longo) agora reusam `gdt_descriptor`.
+- Mensagem de erro de disco encurtada (`"LAY BOOT: disk err"`).
+
+**Se o CI ainda estiver vermelho depois deste commit**, o proximo
+suspeito e outra montagem NASM que também passou dos 512 bytes de novo,
+ou um erro diferente - abra o job "Build Lay OS image" no Actions e
+leia a mensagem do `nasm`/`make` primeiro, antes de mexer em qualquer
+outra coisa.
+
+### Observacao: branches `progress-91` / `progress-92` no historico
+Vi no Actions (nao investiguei os arquivos) que ha commits em branches
+separadas (`progress-91`, `progress-92`) com nomes como
+"debug: report ATA DRQ...", "fix: reset ATA channel...", "ci: run
+persistence test...", todos vermelhos - parece que alguem (ChatGPT,
+provavelmente) tentou implementar o driver ATA real que eu recomendei
+NAO fazer sem validacao (ver sessao 2) e esta iterando por tentativa e
+erro direto no CI. Isso nao afeta a `main` (essas branches sao
+separadas), mas se essas mudancas forem trazidas pra `main` depois,
+vale reler a secao de riscos da sessao 2 antes de aceitar.
+
+### Licao para toda sessao futura (Claude ou ChatGPT)
+Qualquer edicao em `boot/boot.asm` deve terminar com uma contagem
+mental do tamanho: o arquivo TEM que caber em exatamente 510 bytes de
+codigo+dados antes do `times 510-($-$$) db 0` + `dw 0xAA55` finais. Nao
+ha folga - qualquer bytes a mais quebra o `nasm` com "TIMES value
+negative", e sem CI legivel isso pode passar sessoes inteiras
+despercebido (foi o que aconteceu aqui).
+
+### Proximos passos sugeridos
+1. Confirmar no Actions que o commit `e68cc45` ficou verde. Se sim, so
+   ENTAO os resultados das sessoes 1-4 (E820, allocator, multiprocesso)
+   estao de fato validados pela primeira vez.
+2. Espaco de enderecos por processo (PML4/PDPT/PD/PT proprios via
+   `memory::alloc_page`, trocando CR3 no `activate` do scheduler).
+3. Syscalls `spawn`/`wait` e carregar programas de um arquivo do VFS.
+4. Driver de armazenamento real - ver riscos na sessao 2 ANTES de
+   aceitar qualquer coisa vinda de `progress-91`/`progress-92`.
+5. VFS/LayFS persistente (depende do passo 4).
+
+---
+
 ## Entrada - 2026-09-28 (Claude, sessao 4, via GitHub direto no repo)
 
 ### IMPORTANTE: build.yml precisa ser atualizado manualmente
 A integracao do GitHub que a Claude usa NAO tem permissao para escrever
 em `.github/workflows/*` (o GitHub bloqueia isso por seguranca para Apps
-sem o escopo `workflows`, mesmo com o resto do repo liberado). Entao as
-mudancas desta sessao no kernel foram commitadas, mas a atualizacao do
-smoke test do CI (`.github/workflows/build.yml`) NAO foi aplicada e
-precisa ser feita por voce (ou pelo ChatGPT, se ele tiver permissao) a
-mao. O diff pretendido era, no step "Boot smoke test": imprimir o log
-inteiro (`cat build/debug.log`) antes dos `grep`, e adicionar duas
-verificacoes novas alem das existentes: `grep -F "selftest: page
-allocator ok" build/debug.log` e `grep -F "process: pid 2 exited status
-0" build/debug.log` (a checagem de `pid 1 exited status 0` ja existia
-implicitamente, so nao era conferida explicitamente - vale adicionar
-tambem). Sem isso o CI continua rodando, so nao valida ainda o
-allocator nem o multiprocesso desta sessao.
+sem o escopo `workflows`, mesmo com o resto do repo liberado). O usuario
+aplicou essa mudanca a mao na sessao 5 (commit `098f09c`).
 
 ### O que foi feito: multiplos processos de verdade
 Ate aqui so existia o pid 1 fixo. Agora o kernel suporta varios
@@ -54,24 +106,6 @@ processos de usuario (pid 1..3; pid 0 e o proprio kernel).
   (uma PML4/PT por processo) e o proximo passo.
 - Nao ha `fork`/`exec`/`wait`; o programa de usuario e fixo.
 - Maximo de 3 processos de usuario simultaneos (`MAX_USER_SLOTS`).
-
-### Estado da validacao
-- O workflow do CI nao foi atualizado (ver aviso no topo). Ate alguem
-  aplicar essa mudanca a mao, o CI so confere o que ja conferia antes
-  (`LAY OS KERNEL ONLINE` + a letra `U` no log), entao ele pode ficar
-  verde mesmo que o multiprocesso desta sessao tenha um bug. Suspeitos
-  mais provaveis se o boot travar: troca de RSP0 (`activate`/
-  `gdt::set_kernel_stack`) ou o slot 2 (pilha em 0x4FF000 nao mapeada).
-
-### Proximos passos sugeridos
-1. Aplicar a mudanca pendente em `build.yml` (ver aviso acima) e
-   conferir o CI.
-2. Espaco de enderecos por processo (PML4/PDPT/PD/PT proprios via
-   `memory::alloc_page`, trocando CR3 no `activate`).
-3. Syscalls `spawn`/`wait` e carregar programas de um arquivo do VFS.
-4. Driver de armazenamento real (ver sessao 2, riscos de colisao com a
-   imagem de boot).
-5. VFS/LayFS persistente (depende do passo 4).
 
 ---
 
