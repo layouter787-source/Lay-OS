@@ -160,6 +160,21 @@ pub fn alloc_page() -> Option<usize> {
     }
 }
 
+/// Claims a specific frame that the kernel uses at a fixed address (for
+/// example the user code/stack pages), so `alloc_page` can never hand it out
+/// later. Returns false if the frame is not free, usable RAM.
+pub fn reserve_page(addr: usize) -> bool {
+    unsafe {
+        let frame = addr / PAGE_SIZE;
+        if addr % PAGE_SIZE != 0 || frame >= MAX_FRAMES || !is_usable(frame) || is_used(frame) {
+            return false;
+        }
+        set_used(frame);
+        FREE_FRAMES -= 1;
+        true
+    }
+}
+
 /// Returns a frame to the allocator. Ignores anything that is not a
 /// page-aligned, currently-allocated frame of real usable RAM, so a bad or
 /// double free can never corrupt the accounting or hand out reserved memory.

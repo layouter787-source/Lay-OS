@@ -8,55 +8,90 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
 
 ---
 
+## Entrada - 2026-09-28 (Claude, sessao 4, via GitHub direto no repo)
+
+### IMPORTANTE: build.yml precisa ser atualizado manualmente
+A integracao do GitHub que a Claude usa NAO tem permissao para escrever
+em `.github/workflows/*` (o GitHub bloqueia isso por seguranca para Apps
+sem o escopo `workflows`, mesmo com o resto do repo liberado). Entao as
+mudancas desta sessao no kernel foram commitadas, mas a atualizacao do
+smoke test do CI (`.github/workflows/build.yml`) NAO foi aplicada e
+precisa ser feita por voce (ou pelo ChatGPT, se ele tiver permissao) a
+mao. O diff pretendido era, no step "Boot smoke test": imprimir o log
+inteiro (`cat build/debug.log`) antes dos `grep`, e adicionar duas
+verificacoes novas alem das existentes: `grep -F "selftest: page
+allocator ok" build/debug.log` e `grep -F "process: pid 2 exited status
+0" build/debug.log` (a checagem de `pid 1 exited status 0` ja existia
+implicitamente, so nao era conferida explicitamente - vale adicionar
+tambem). Sem isso o CI continua rodando, so nao valida ainda o
+allocator nem o multiprocesso desta sessao.
+
+### O que foi feito: multiplos processos de verdade
+Ate aqui so existia o pid 1 fixo. Agora o kernel suporta varios
+processos de usuario (pid 1..3; pid 0 e o proprio kernel).
+- `kernel/process.rs`: tabela real (`TABLE`) com estado, pai e status de
+  saida por pid. `create`/`exit`/`state`/`parent` valem para qualquer pid.
+- `kernel/scheduler.rs`: slot N da tabela de tarefas = pid N. Novo
+  `spawn(parent) -> Option<pid>` (reusa slots Dead). Helper `activate()`
+  centraliza a troca de tarefa. No boot sobem 2 processos identicos.
+- **Bug latente corrigido antes de escalar:** o TSS tinha um unico RSP0
+  (pilha de kernel para ring3 -> ring0). Com 2+ tarefas de usuario, uma
+  interrupcao da tarefa B sobrescreveria o contexto salvo da tarefa A.
+  Agora cada tarefa de usuario tem pilha de kernel propria e o
+  scheduler chama `gdt::set_kernel_stack()` a cada troca.
+- **Outro bug latente corrigido:** as paginas fixas do usuario (codigo em
+  0x400000 e pilhas perto de 0x4FF000) nao eram reservadas no allocator,
+  entao `alloc_page` poderia devolve-las depois de ~512 alocacoes. Novo
+  `memory::reserve_page(addr)`; `user::init` reserva codigo e pilhas.
+- `kernel/user.rs`: uma pagina de pilha de usuario por slot.
+- `kernel/gdt.rs`: `set_kernel_stack(top)`.
+- `kernel/shell.rs`: comandos `ps` e `spawn`.
+- `kernel/selftest.rs`: teste de `reserve_page`.
+
+### Limites conhecidos (por design, nesta fase)
+- Todos os processos compartilham UM espaco de enderecos (mesma PT) e o
+  mesmo codigo; so as pilhas de usuario sao separadas. Isolamento real
+  (uma PML4/PT por processo) e o proximo passo.
+- Nao ha `fork`/`exec`/`wait`; o programa de usuario e fixo.
+- Maximo de 3 processos de usuario simultaneos (`MAX_USER_SLOTS`).
+
+### Estado da validacao
+- O workflow do CI nao foi atualizado (ver aviso no topo). Ate alguem
+  aplicar essa mudanca a mao, o CI so confere o que ja conferia antes
+  (`LAY OS KERNEL ONLINE` + a letra `U` no log), entao ele pode ficar
+  verde mesmo que o multiprocesso desta sessao tenha um bug. Suspeitos
+  mais provaveis se o boot travar: troca de RSP0 (`activate`/
+  `gdt::set_kernel_stack`) ou o slot 2 (pilha em 0x4FF000 nao mapeada).
+
+### Proximos passos sugeridos
+1. Aplicar a mudanca pendente em `build.yml` (ver aviso acima) e
+   conferir o CI.
+2. Espaco de enderecos por processo (PML4/PDPT/PD/PT proprios via
+   `memory::alloc_page`, trocando CR3 no `activate`).
+3. Syscalls `spawn`/`wait` e carregar programas de um arquivo do VFS.
+4. Driver de armazenamento real (ver sessao 2, riscos de colisao com a
+   imagem de boot).
+5. VFS/LayFS persistente (depende do passo 4).
+
+---
+
 ## Entrada - 2026-09-28 (Claude, sessao 3, via GitHub direto no repo)
 
 ### O que foi feito
-- `kernel/memory.rs` endurecido:
-  - `free_page` agora e seguro: ignora enderecos nao alinhados, frames
-    fora da RAM utilizavel (ex.: memoria baixa reservada, regioes E820
-    reservadas) e double free. Antes, um `free_page` errado poderia
-    liberar memoria reservada do kernel e corromper a contabilidade.
-    Para isso ha um segundo bitmap interno (`USABLE`) que marca so os
-    frames reais de RAM alocavel.
-  - Frames liberados voltam a ser reutilizados do mais baixo para o mais
-    alto (`NEXT_HINT` recua no free), o que torna o comportamento
-    deterministico (a primeira `alloc_page()` apos o boot continua
-    devolvendo 0x200000 mesmo depois do selftest).
-  - Removidos usos de `.iter_mut()`/referencias sobre `static mut`
-    (viram erro na edicao Rust 2024 do compilador); agora so indexacao.
-- `kernel/selftest.rs`: novo `memory_check()` executado no boot. Verifica
-  alocacao de duas paginas distintas, alinhadas e acima de 2 MiB,
-  contabilidade de `free_bytes`, escrita/leitura real na pagina, que
-  frees invalidos e double free sao ignorados, e reuso do frame mais
-  baixo. Se algo falhar, o kernel entra em panic ANTES de imprimir
-  `LAY OS KERNEL ONLINE`, entao o smoke test do CI fica vermelho.
-  Linha nova no boot log: `selftest: page allocator ok`.
+- `kernel/memory.rs` endurecido: `free_page` agora ignora enderecos nao
+  alinhados, frames fora da RAM utilizavel e double free (bitmap
+  `USABLE` separado). Frames liberados sao reutilizados do mais baixo
+  para o mais alto. Removidas referencias sobre `static mut`
+  (`.iter_mut()`), que quebrariam na edicao Rust 2024.
+- `kernel/selftest.rs`: novo `memory_check()` no boot (alocacao,
+  contabilidade, escrita/leitura, frees invalidos, double free, reuso).
+  Se falhar, panic antes de `LAY OS KERNEL ONLINE` -> CI fica vermelho.
 
 ### Como a validacao funciona (importante)
-- O usuario definiu que a validacao deve ser feita pelo GitHub Actions
-  (`.github/workflows/build.yml`: build + smoke test no QEMU procurando
-  `LAY OS KERNEL ONLINE` no log). Como os commits da IA vao direto pra
-  `main`, o CI roda a cada push.
-- Limite da IA (Claude) nesta configuracao: NAO ha ferramenta para ler o
-  resultado do Actions nem criar branch/PR. Portanto Claude nao consegue
-  saber se o CI passou. **Quem abrir a proxima sessao deve conferir o
-  status do ultimo run em Actions primeiro** e, se estiver vermelho,
-  corrigir antes de qualquer feature nova (o log do smoke test mostra
-  ate onde o boot chegou).
-
-### Estado depois desta mudanca
-- Commits ainda NAO confirmados como verdes no CI (ver acima). Os
-  commits relevantes: E820 + bitmap allocator (sessao 1), PT do usuario
-  via allocator (sessao 2), endurecimento + selftest de memoria
-  (sessao 3).
-
-### Proximos passos sugeridos
-1. Conferir o CI dos 3 ultimos pushes e corrigir se vermelho.
-2. Driver de armazenamento real (ver secao da sessao 2, com os riscos
-   de colisao com a imagem de boot).
-3. Gerenciamento real de processos/threads (item 1 do roadmap).
-4. VFS/LayFS persistente de verdade (depende do passo 2).
-5. Aumentar `MAX_FRAMES` ou bitmap dinamico se precisar de >128 MiB.
+- O usuario definiu que a validacao deve ser feita pelo GitHub Actions.
+  Limite da IA: sem ferramenta para ler o resultado do Actions nem
+  criar branch/PR nesta sessao. Alem disso (descoberto na sessao 4): a
+  integracao tambem nao pode escrever em `.github/workflows/*`.
 
 ---
 
@@ -65,62 +100,25 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
 ### O que foi feito
 - `kernel/user.rs`: a tabela de paginas (PT) do processo de usuario
   deixou de usar um endereco fisico hardcoded (0x103000) e passou a vir
-  de `memory::alloc_page()`. PML4/PDPT/PD continuam fixos (sao as
-  estruturas do boot loader, referenciadas por CR3), so o nivel extra
-  adicionado para o processo de usuario agora e alocado de verdade.
-  Comportamento observavel deveria ser identico (a primeira chamada de
-  `alloc_page()` retorna deterministicamente 0x200000), mas o codigo
-  nao assume mais silenciosamente que um frame fixo esta sempre livre.
+  de `memory::alloc_page()`.
 
-### O que eu avaliei e decidi NAO fazer nesta sessao (leia antes de mexer em storage)
-- Cheguei a considerar substituir `kernel/block.rs` (hoje um RAM-disk
-  puro, ver `DISK: [[u8; 512]; 128]`) por um driver ATA/IDE PIO real
-  (portas 0x1F0-0x1F7), que seria a "camada 4" do roadmap
-  ("Drivers de armazenamento").
+### O que eu avaliei e decidi NAO fazer (leia antes de mexer em storage)
+- Cheguei a considerar substituir `kernel/block.rs` (RAM-disk puro) por
+  um driver ATA/IDE PIO real (portas 0x1F0-0x1F7).
 - **Nao fiz isso porque e arriscado sem conseguir rodar QEMU/CI a partir
-  daqui para validar.** O motivo especifico: o unico disco que o QEMU
-  usa hoje (ver `Makefile` e `.github/workflows/build.yml`, flag
-  `-drive format=raw,file=build/lay-os.img`) e a PROPRIA imagem de
-  boot+kernel - os primeiros ~1024 setores (LBA 1 em diante) sao o
-  binario do kernel carregado no boot. O `block.rs` atual usa
-  `BLOCK_COUNT = 128` (LBA 0-127 se fosse disco real), que colide
-  direto com essa regiao. Um driver ATA real escrevendo ali corromperia
-  a propria imagem de boot entre uma execucao e outra (o `make` recria
-  a imagem do zero, entao nao quebraria o CI, mas seria uma pegadinha
-  feia para quem reusa uma imagem local sem rebuildar, e semanticamente
-  errado: nao sobra espaco livre nesses LBAs).
+  daqui para validar.** O unico disco que o QEMU usa hoje
+  (`-drive format=raw,file=build/lay-os.img`) e a PROPRIA imagem de
+  boot+kernel - os primeiros ~1024 setores sao o binario do kernel. O
+  `block.rs` atual usa `BLOCK_COUNT = 128` (LBA 0-127), que colide
+  direto com essa regiao.
 - **Se for implementar o driver ATA real, fazer nesta ordem:**
-  1. Aumentar `IMAGE_SIZE` no `Makefile` para sobrar espaco livre depois
-     do kernel (hoje kernel ocupa ate LBA ~1024; reservar um `LBA_BASE`
-     bem acima disso, ex.: 2048, mais uma folga de seguranca).
-  2. `kernel/block.rs`: LBA real usado = `LBA_BASE + block_index`, nunca
-     `block_index` puro.
-  3. Adicionar `inw`/`outw` em `kernel/arch.rs` (so existe `inb`/`outb`
-     hoje) para os registradores de dados ATA (16 bits).
-  4. Implementar leitura/escrita LBA28 em modo PIO com **timeout
-     limitado** no polling de BSY/DRQ (nunca `loop` infinito esperando o
-     status - se o disco nao responder, retornar `false` em vez de
-     travar o boot).
+  1. Aumentar `IMAGE_SIZE` no `Makefile`, reservar `LBA_BASE` bem acima
+     do fim do kernel (ex.: 2048).
+  2. `kernel/block.rs`: LBA real = `LBA_BASE + block_index`.
+  3. Adicionar `inw`/`outw` em `kernel/arch.rs`.
+  4. Leitura/escrita LBA28 em PIO com timeout limitado no polling de
+     BSY/DRQ (nunca loop infinito).
   5. So depois disso: validar via CI antes de confiar no resultado.
-
-### Estado depois desta mudanca
-- `kernel/user.rs` usa o allocator real para a PT do processo de
-  usuario. `kernel/process.rs` e `kernel/scheduler.rs` ainda tratam
-  exatamente um processo de usuario fixo (pid 1); isso e o item 1 do
-  roadmap do README ("gerenciamento real de processos, threads e
-  address spaces") e ainda nao foi atacado - e uma mudanca bem maior
-  (multiplos processos, carregamento de codigo variavel) que merece uma
-  sessao propria.
-
-### Proximos passos sugeridos (ordem sugerida, atualizada)
-1. **Validar em build real** as mudancas desta sessao e da anterior.
-2. Driver de armazenamento real (ver secao acima).
-3. Gerenciamento real de processos/threads (item 1 do roadmap): hoje
-   `kernel/process.rs` so reconhece o pid 1 fixo; `kernel/scheduler.rs`
-   tem `MAX_TASKS = 4` mas so preenche os slots 0 e 1.
-4. VFS/LayFS persistente de verdade (depende do passo 2 primeiro).
-5. Se for necessario testar com mais de 128 MiB de RAM, aumentar
-   `MAX_FRAMES` em `kernel/memory.rs` ou tornar o bitmap dinamico.
 
 ---
 
@@ -128,43 +126,18 @@ no topo (mais recente primeiro) e nao apague as entradas antigas.
 
 ### O que foi feito
 - Deteccao de memoria real via BIOS E820 (`boot/boot.asm`, rotina
-  `detect_memory`), chamada em modo real logo apos o carregamento do
-  kernel do disco e antes da troca para modo protegido. O boot loader
-  grava:
-  - contagem de entradas (u16) em `0x8FF0`
-  - ate 64 entradas E820 cruas de 24 bytes a partir de `0x9000`
-  - contrato completo documentado em `docs/MEMORY_MAP.md`
-- `kernel/memory.rs` reescrito: o allocator de paginas deixou de ser um
-  bump allocator com janela fixa (2..32 MiB) e passou a ser um bitmap
-  allocator que:
-  - le o mapa E820 gravado pelo boot loader
-  - libera apenas regioes tipo 1 (usavel) acima de 2 MiB
-    (`RESERVED_BELOW`), preservando kernel, page tables iniciais e
-    estruturas de boot
-  - rastreia ate 128 MiB de RAM (`MAX_FRAMES = 32768` paginas de 4 KiB)
-  - cai de volta para a janela fixa antiga se nao houver mapa de memoria
-    (BIOS sem E820, ou boot loader antigo)
-  - ganhou `free_page`, `free_bytes`, `total_bytes` (antes so existiam
-    `alloc_page`/`used_bytes`)
-- `kernel/console.rs`: novo `write_dec` para imprimir numeros em decimal
-  (so existia `write_hex`).
-- `kernel/main.rs`: a linha de boot da memoria agora mostra a RAM
-  detectada em KiB.
-- `kernel/shell.rs`: novo comando `meminfo` no Lay Shell (mostra
-  total/usado/livre em KiB).
-
-### Por que
-Esta e a "camada 2" do roadmap do README ("Page-frame allocator baseado
-no mapa de memoria do firmware"), a proxima logo depois do allocator
-inicial fixo que ja existia (marco de 40%).
+  `detect_memory`). O boot loader grava contagem de entradas (u16) em
+  `0x8FF0` e ate 64 entradas E820 cruas a partir de `0x9000` (contrato
+  documentado em `docs/MEMORY_MAP.md`).
+- `kernel/memory.rs` reescrito como bitmap allocator que le o mapa E820,
+  libera so RAM usavel acima de 2 MiB, rastreia ate 128 MiB, com
+  fallback para a janela fixa antiga se nao houver mapa.
+- `kernel/console.rs`: `write_dec`. `kernel/main.rs`: RAM detectada em
+  KiB no boot. `kernel/shell.rs`: comando `meminfo`.
 
 ### Decisoes que quem continuar deve conhecer
-- O contrato de enderecos fixos (0x8FF0/0x9000) para o mapa de memoria e
-  deliberadamente simples porque o boot loader (NASM) e o kernel (Rust
-  `no_std`) sao compilados separadamente e nao compartilham um struct de
-  "boot info". Se um protocolo de boot mais robusto for adicionado no
-  futuro (Multiboot2 ou um `BootInfo` proprio), atualizar
-  `docs/MEMORY_MAP.md` junto.
-- O teto de 128 MiB do bitmap foi uma escolha deliberada para manter o
-  allocator simples (array estatico, sem heap) enquanto o projeto ainda
-  esta em ffase de prototipo x86_64 com RAM padrao do QEMU.
+- O contrato de enderecos fixos (0x8FF0/0x9000) e deliberadamente
+  simples porque boot loader (NASM) e kernel (Rust `no_std`) sao
+  compilados separadamente, sem struct de "boot info" compartilhado.
+- O teto de 128 MiB do bitmap e uma escolha deliberada para manter o
+  allocator simples (array estatico, sem heap) nesta fase de prototipo.

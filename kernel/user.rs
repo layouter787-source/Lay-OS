@@ -1,11 +1,14 @@
 //! First protected user address space.
-//! One executable page at 0x0100_0000 and one stack page below 0x0110_0000.
-//! The third-level page table (PT) is now obtained from the real page
-//! allocator (`memory::alloc_page`) instead of a hardcoded physical
-//! address, now that the allocator reflects the firmware memory map.
+//! One executable page at USER_ENTRY (shared by every user process) and one
+//! private stack page per process slot just below USER_STACK_TOP.
+//! The third-level page table (PT) comes from the real page allocator, and
+//! the fixed code/stack frames are reserved so the allocator never reuses them.
 
 pub const USER_ENTRY: usize = 0x0040_0000;
 pub const USER_STACK_TOP: usize = 0x0050_0000;
+
+/// User process slots (pid 1..=MAX_USER_SLOTS); each gets its own stack page.
+pub const MAX_USER_SLOTS: usize = 3;
 
 const PML4: usize = 0x0010_0000;
 const PDPT: usize = 0x0010_1000;
@@ -15,7 +18,14 @@ const PTE_PRESENT: u64 = 1;
 const PTE_RW: u64 = 2;
 const PTE_USER: u64 = 4;
 
-// User process: getpid, print U/yield four times, then exit(0).
+/// Top-of-stack address for user process `slot` (1-based). Slot 1 keeps the
+/// original layout (stack page 0x4FF000, top 0x500000); each next slot sits
+/// one page lower.
+pub fn stack_top(slot: usize) -> usize {
+    USER_STACK_TOP - slot.saturating_sub(1) * 0x1000
+}
+
+// User process: getpid, print U, then exit(0).
 const USER_CODE_LEN: usize = 33;
 
 fn user_byte(index: usize) -> u8 {
@@ -35,6 +45,15 @@ fn user_byte(index: usize) -> u8 {
 pub fn init() {
     crate::console::write("user: init begin\n");
     unsafe {
+        // These frames live at fixed physical addresses inside normal RAM.
+        // Claim them first so alloc_page can never hand them out later.
+        crate::memory::reserve_page(USER_ENTRY);
+        let mut slot = 1;
+        while slot <= MAX_USER_SLOTS {
+            crate::memory::reserve_page(stack_top(slot) - 0x1000);
+            slot += 1;
+        }
+
         let dst = USER_ENTRY as *mut u8;
         dst.write_volatile(0xCC);
         crate::console::write("user: destination write ok\n");
@@ -44,13 +63,10 @@ pub fn init() {
         }
         crate::console::write("user: code copied\n");
 
-        // The PT frame used to be a hardcoded physical address (0x103000,
-        // right after the boot loader's own page tables). It now comes
-        // from the real frame allocator: memory::init() has already run
-        // by the time user::init() executes (see kernel/main.rs), and the
-        // returned frame is guaranteed to be outside the reserved
-        // boot/kernel region and identity-mapped by the first-1-GiB
-        // mapping the boot loader already set up.
+        // The PT frame comes from the real frame allocator: memory::init()
+        // has already run by the time user::init() executes (kernel/main.rs),
+        // and the frame is identity-mapped by the boot loader's first-1-GiB
+        // mapping.
         let pt = crate::memory::alloc_page()
             .expect("user: out of memory allocating the user page table");
 
@@ -64,10 +80,18 @@ pub fn init() {
             pt_ptr.add(index).write(0);
         }
 
+        // Shared code page (read/execute for user mode).
         pt_ptr.add(0).write((USER_ENTRY as u64) | PTE_PRESENT | PTE_USER);
-        pt_ptr.add(0x0FF).write(
-            ((USER_STACK_TOP - 0x1000) as u64) | PTE_PRESENT | PTE_RW | PTE_USER,
-        );
+
+        // One private, writable stack page per process slot.
+        let mut slot = 1;
+        while slot <= MAX_USER_SLOTS {
+            let page = stack_top(slot) - 0x1000;
+            pt_ptr
+                .add((page - USER_ENTRY) / 0x1000)
+                .write((page as u64) | PTE_PRESENT | PTE_RW | PTE_USER);
+            slot += 1;
+        }
 
         // Reload the active page-table root so the CPU drops the old huge-page TLB entry.
         core::arch::asm!("mov cr3, {}", in(reg) PML4, options(nostack, preserves_flags));

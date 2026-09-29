@@ -50,6 +50,17 @@ unsafe fn write_u64(ptr: *mut u8, offset: usize, value: u64) {
     ptr.add(offset).cast::<u64>().write_unaligned(value);
 }
 
+/// Points the TSS RSP0 (the stack the CPU switches to on a ring3 -> ring0
+/// transition) at `top`. Every user task owns a private kernel stack, so the
+/// scheduler must move RSP0 whenever it switches to a different user task;
+/// otherwise two tasks would overwrite each other's saved context.
+pub fn set_kernel_stack(top: usize) {
+    unsafe {
+        let tss = core::ptr::addr_of_mut!(TSS).cast::<u8>();
+        write_u64(tss, 4, top as u64);
+    }
+}
+
 pub fn init() {
     unsafe {
         let tss = core::ptr::addr_of_mut!(TSS).cast::<u8>();

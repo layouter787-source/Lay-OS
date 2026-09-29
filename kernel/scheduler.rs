@@ -1,9 +1,13 @@
 //! Preemptive round-robin scheduler with process lifecycle support.
+//! Task slot N is pid N; slot 0 is the kernel. Every user task owns a private
+//! kernel stack, and the TSS RSP0 follows the running user task.
 
 use crate::{console, gdt, process, user};
 
-const MAX_TASKS: usize = 4;
+const MAX_TASKS: usize = process::MAX_PROCESSES;
 const STACK_SIZE: usize = 16 * 1024;
+
+const _: () = assert!(user::MAX_USER_SLOTS + 1 == MAX_TASKS);
 
 #[derive(Clone, Copy, PartialEq)]
 enum TaskState { Empty, Ready, Running, Dead }
@@ -30,16 +34,52 @@ pub fn init() {
     unsafe {
         let kernel_context = build_kernel_context();
         TASKS[0] = Task { id: 0, state: TaskState::Running, context: kernel_context, user: false };
+        let mut slot = 1;
+        while slot < MAX_TASKS {
+            TASKS[slot] = Task { id: 0, state: TaskState::Empty, context: 0, user: false };
+            slot += 1;
+        }
         CURRENT = 0;
         TICKS = 0;
         EXIT_REPORTED = false;
+    }
 
-        let context = build_user_context(user::USER_STACK_TOP, user::USER_ENTRY);
-        TASKS[1] = Task { id: 1, state: TaskState::Ready, context, user: true };
-
-        if process::create(1, 0) {
-            console::write("scheduler: process 1 linked\n");
+    // Boot demo: two identical user processes sharing the user address
+    // space, each with its own user stack and kernel stack.
+    let mut launched = 0;
+    while launched < 2 {
+        if let Some(pid) = spawn(0) {
+            console::write("scheduler: process ");
+            console::write_dec(pid as usize);
+            console::write(" linked\n");
         }
+        launched += 1;
+    }
+}
+
+/// Creates a new user process running the built-in user program and returns
+/// its pid, or None if every slot is busy. Dead slots are reused.
+pub fn spawn(parent: u32) -> Option<u32> {
+    unsafe {
+        let mut slot = 1;
+        while slot < MAX_TASKS {
+            if TASKS[slot].state == TaskState::Empty || TASKS[slot].state == TaskState::Dead {
+                break;
+            }
+            slot += 1;
+        }
+        if slot >= MAX_TASKS {
+            return None;
+        }
+
+        let pid = slot as u32;
+        if !process::create(pid, parent) {
+            return None;
+        }
+
+        let context = build_user_context(slot, user::stack_top(slot), user::USER_ENTRY);
+        TASKS[slot] = Task { id: pid, state: TaskState::Ready, context, user: true };
+        Some(pid)
     }
 }
 
@@ -47,6 +87,10 @@ pub fn init() {
 pub extern "C" fn kernel_resume() -> ! {
     console::write("scheduler: kernel resumed after process exit\n");
     loop { unsafe { crate::arch::hlt() } }
+}
+
+unsafe fn kernel_stack_top(slot: usize) -> usize {
+    core::ptr::addr_of_mut!(STACKS.0[slot]).cast::<u8>().add(STACK_SIZE) as usize
 }
 
 unsafe fn build_kernel_context() -> usize {
@@ -61,10 +105,8 @@ unsafe fn build_kernel_context() -> usize {
     sp
 }
 
-unsafe fn build_user_context(stack_top: usize, entry: usize) -> usize {
-    let stack_top_addr = core::ptr::addr_of_mut!(STACKS.0[1])
-        .cast::<u8>().add(STACK_SIZE) as usize;
-    let mut sp = stack_top_addr & !0xF;
+unsafe fn build_user_context(slot: usize, stack_top: usize, entry: usize) -> usize {
+    let mut sp = kernel_stack_top(slot) & !0xF;
 
     sp -= 8; write(sp, gdt::USER_DATA as usize);
     sp -= 8; write(sp, stack_top);
@@ -80,6 +122,18 @@ unsafe fn write(address: usize, value: usize) {
     (address as *mut usize).write_volatile(value);
 }
 
+/// Makes `index` the running task and returns the context to resume. For a
+/// user task it also points the TSS RSP0 at that task's private kernel stack.
+unsafe fn activate(index: usize) -> usize {
+    CURRENT = index;
+    TASKS[index].state = TaskState::Running;
+    process::set_running(TASKS[index].id);
+    if TASKS[index].user {
+        gdt::set_kernel_stack(kernel_stack_top(index));
+    }
+    TASKS[index].context
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize {
     TASKS[CURRENT].context = saved_context;
@@ -92,13 +146,8 @@ pub unsafe extern "C" fn schedule_from_interrupt(saved_context: usize) -> usize 
 
     for step in 1..=MAX_TASKS {
         let candidate = (previous + step) % MAX_TASKS;
-        if TASKS[candidate].state == TaskState::Ready
-            && (candidate == 0 || !is_dead(TASKS[candidate].id))
-        {
-            CURRENT = candidate;
-            TASKS[candidate].state = TaskState::Running;
-            process::set_running(TASKS[candidate].id);
-            return TASKS[candidate].context;
+        if TASKS[candidate].state == TaskState::Ready {
+            return activate(candidate);
         }
     }
 
@@ -115,13 +164,8 @@ pub fn exit_current(status: u64) -> usize {
 
         for step in 1..=MAX_TASKS {
             let candidate = (current + step) % MAX_TASKS;
-            if TASKS[candidate].state == TaskState::Ready
-                && (candidate == 0 || !is_dead(TASKS[candidate].id))
-            {
-                CURRENT = candidate;
-                TASKS[candidate].state = TaskState::Running;
-                process::set_running(TASKS[candidate].id);
-                return TASKS[candidate].context;
+            if TASKS[candidate].state == TaskState::Ready {
+                return activate(candidate);
             }
         }
 

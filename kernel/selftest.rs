@@ -40,6 +40,14 @@ fn memory_check() {
     assert!(again == Some(a));
     memory::free_page(a);
     assert!(memory::free_bytes() == free_before);
+
+    // Fixed-address reservation: low memory and already-used frames are refused.
+    assert!(!memory::reserve_page(0x1000));
+    assert!(memory::reserve_page(a));
+    assert!(!memory::reserve_page(a));
+    assert!(memory::free_bytes() == free_before - 4096);
+    memory::free_page(a);
+    assert!(memory::free_bytes() == free_before);
 }
 
 pub fn run() {

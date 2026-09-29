@@ -1,6 +1,6 @@
 //! Minimal keyboard-driven Lay Shell.
 
-use crate::{console, memory, vfs};
+use crate::{console, memory, process, scheduler, vfs};
 
 const INPUT_SIZE: usize = 128;
 static mut INPUT: [u8; INPUT_SIZE] = [0; INPUT_SIZE];
@@ -44,7 +44,7 @@ fn prompt() { console::write("lay> "); }
 
 fn execute(command: &[u8]) {
     if command == b"help" {
-        console::write("help  ls  cat /welcome.txt  write /file text  meminfo\n");
+        console::write("help  ls  cat /welcome.txt  write /file text  meminfo  ps  spawn\n");
     } else if command == b"ls" {
         vfs::list(|name| { console::write(name); console::write("\n"); });
     } else if command == b"meminfo" {
@@ -55,6 +55,30 @@ fn execute(command: &[u8]) {
         console::write("KiB free=");
         console::write_dec(memory::free_bytes() / 1024);
         console::write("KiB\n");
+    } else if command == b"ps" {
+        console::write("pid state parent\n");
+        let mut pid = 1u32;
+        while (pid as usize) < process::MAX_PROCESSES {
+            let state = process::state(pid);
+            if state != process::State::Free {
+                console::write_dec(pid as usize);
+                console::write("   ");
+                console::write(process::state_name(state));
+                console::write("   ");
+                console::write_dec(process::parent(pid) as usize);
+                console::write("\n");
+            }
+            pid += 1;
+        }
+    } else if command == b"spawn" {
+        match scheduler::spawn(0) {
+            Some(pid) => {
+                console::write("spawned pid ");
+                console::write_dec(pid as usize);
+                console::write("\n");
+            }
+            None => console::write("spawn: no free process slot\n"),
+        }
     } else if command.starts_with(b"cat ") {
         let mut buffer = [0u8; 4096];
         match core::str::from_utf8(&command[4..]) {
