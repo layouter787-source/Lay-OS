@@ -27,9 +27,23 @@ pub extern "C" fn lay_kernel_main() -> ! {
     gdt::init();
     console::write("gdt: kernel + user + tss ok\n");
 
+    // Install exception/IRQ handlers as early as possible (PIC/PIT setup is
+    // harmless before interrupts are enabled with sti, which only happens
+    // much later). Before this point the boot loader never loaded a real
+    // IDT, so any CPU exception during early boot triple-faults silently
+    // (QEMU just stops progressing, with -no-reboot/-no-shutdown leaving it
+    // hung instead of resetting). Bringing this forward means exceptions
+    // during memory::init()/user::init()/etc. now print a message instead
+    // of vanishing.
+    interrupts::init();
+    console::write("interrupts: idt/pic/pit ready\n");
+
     memory::init();
+    console::write("memory: init done\n");
+    let total_kib = memory::total_bytes() / 1024;
+    console::write("memory: total computed\n");
     console::write("memory: page allocator ready (");
-    console::write_dec(memory::total_bytes() / 1024);
+    console::write_dec(total_kib);
     console::write(" KiB usable)\n");
 
     block::init();
@@ -47,9 +61,6 @@ pub extern "C" fn lay_kernel_main() -> ! {
 
     ipc::init();
     console::write("ipc: mailbox ready\n");
-
-    interrupts::init();
-    console::write("interrupts: idt/pic/pit ready\n");
 
     unsafe { arch::sti() };
     console::write("LAY OS KERNEL ONLINE\n");
