@@ -10,7 +10,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Pipeline completo
-        run: ./tools/ci/all.sh
+        run: bash tools/ci/all.sh
       - name: Guardar resultados
         if: always()
         uses: actions/upload-artifact@v4
