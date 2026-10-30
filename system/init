@@ -1,0 +1,53 @@
+#!/bin/sh
+# Lay-OS init (PID 1) - Fase 1
+# Inicialização mínima: monta sistemas de arquivos virtuais e abre um shell.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export HOME=/root
+export TERM=linux
+
+mount -t proc     proc     /proc
+mount -t sysfs    sysfs    /sys
+mount -t devtmpfs devtmpfs /dev 2>/dev/null
+mkdir -p /dev/pts /run /tmp
+mount -t devpts   devpts   /dev/pts
+mount -t tmpfs    tmpfs    /run
+mount -t tmpfs    tmpfs    /tmp
+
+hostname layos
+
+BOOT_MS=$(cut -d' ' -f1 /proc/uptime)
+MEM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+FREE_KB=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+
+cat <<EOF
+
+  _                    ___  ____
+ | |    __ _ _   _    / _ \\/ ___|
+ | |   / _\` | | | |  | | | \\___ \\
+ | |__| (_| | |_| |  | |_| |___) |
+ |_____\\__,_|\\__, |   \\___/|____/
+              |___/
+
+  Lay-OS 0.1.0 (fase 1) - aberto, leve e poderoso
+  Boot em ${BOOT_MS}s | RAM total: $((MEM_KB / 1024)) MB | disponivel: $((FREE_KB / 1024)) MB
+
+  Digite 'layinfo' para informacoes do sistema.
+
+EOF
+
+# Comando auxiliar
+cat > /bin/layinfo <<'EOS'
+#!/bin/sh
+echo "Lay-OS 0.1.0"
+echo "Kernel : $(uname -sr)"
+echo "Arq    : $(uname -m)"
+echo "Uptime : $(cut -d' ' -f1 /proc/uptime)s"
+echo "RAM    : $(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo) MB livres de $(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo) MB"
+EOS
+chmod +x /bin/layinfo
+
+# Shell de console; ao sair, reinicia o shell (PID 1 nunca pode terminar)
+while true; do
+  setsid sh -c 'exec sh </dev/console >/dev/console 2>&1'
+done

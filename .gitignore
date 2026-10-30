@@ -1,0 +1,10 @@
+out/
+*.img
+*.iso
+*.cpio.gz
+*.o
+*.so
+*.log
+.vscode/
+.idea/
+.DS_Store
