@@ -1,35 +1,23 @@
 name: Build e teste de boot
-
 on:
   push:
     branches: [main]
   workflow_dispatch:
-
 jobs:
-  boot-qemu:
+  layos:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Instalar dependencias
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y qemu-system-x86 busybox-static cpio
-      - name: Gerar initramfs
-        run: |
-          chmod +x tools/build/*.sh tools/qemu/*.sh tools/test/*.sh system/init
-          ./tools/build/build-initramfs.sh
-      - name: Preparar kernel do runner
-        run: |
-          sudo chmod a+r /boot/vmlinuz-*
-          echo "LAYOS_KERNEL=$(ls -1 /boot/vmlinuz-* | sort -V | tail -n1)" >> "$GITHUB_ENV"
-      - name: Boot no QEMU e teste
-        run: ./tools/test/boot-test.sh
+      - name: Pipeline completo
+        run: ./tools/ci/all.sh
       - name: Guardar resultados
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: layos-boot
+          name: layos
           path: |
+            out/bzImage
+            out/kernel.config
             out/initramfs.cpio.gz
-            out/boot-test.log
+            out/*.log
