@@ -1,0 +1,65 @@
+#!/bin/sh
+# Lay-OS: init da camada Android (Lay-Android), etapa 2.
+# Monta o disco com o rootfs Android, prepara /dev + binderfs e entrega o controle ao init do Android.
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+log() { echo "[layos] $*" >/dev/console 2>&1 || echo "[layos] $*"; }
+
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+
+log "Lay-OS: iniciando camada Android"
+
+i=0
+while [ ! -b /dev/vda ] && [ "$i" -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
+if [ ! -b /dev/vda ]; then
+  log "ERRO: disco Android (/dev/vda) nao apareceu"
+  exec sh
+fi
+
+mkdir -p /android
+if ! mount -t ext4 -o rw /dev/vda /android; then
+  log "ERRO: nao foi possivel montar o disco Android"
+  exec sh
+fi
+log "rootfs Android montado"
+
+# /dev do Android: tmpfs com os nos basicos + binderfs
+mount -t tmpfs -o mode=755 tmpfs /android/dev
+mkdir -p /android/dev/pts /android/dev/socket /android/dev/binderfs
+mknod -m 666 /android/dev/null    c 1 3
+mknod -m 666 /android/dev/zero    c 1 5
+mknod -m 666 /android/dev/full    c 1 7
+mknod -m 666 /android/dev/random  c 1 8
+mknod -m 666 /android/dev/urandom c 1 9
+mknod -m 600 /android/dev/kmsg    c 1 11
+mknod -m 666 /android/dev/tty     c 5 0
+mknod -m 600 /android/dev/console c 5 1
+mknod -m 666 /android/dev/ptmx    c 5 2
+
+if mount -t binder binder /android/dev/binderfs; then
+  for d in binder hwbinder vndbinder; do
+    ln -sf "binderfs/$d" "/android/dev/$d"
+  done
+  log "binderfs montado: $(ls /android/dev/binderfs | tr '\n' ' ')"
+else
+  log "ERRO: binderfs nao pode ser montado (kernel sem Binder?)"
+fi
+
+mkdir -p /android/proc /android/sys
+mount --move /proc /android/proc
+mount --move /sys /android/sys
+
+log "entregando o controle ao init do Android"
+exec switch_root /android /init \
+  androidboot.hardware=redroid \
+  androidboot.selinux=permissive \
+  androidboot.use_memfd=1 \
+  androidboot.redroid_width=720 \
+  androidboot.redroid_height=1280 \
+  androidboot.redroid_gpu_mode=guest
+
+log "ERRO: switch_root falhou"
+exec sh

@@ -8,11 +8,12 @@ cd "$ROOT"
 
 echo "::group::Dependencias"
 sudo apt-get update
-sudo apt-get install -y qemu-system-x86 busybox-static cpio \
+sudo apt-get install -y qemu-system-x86 busybox-static cpio e2fsprogs \
   build-essential bc bison flex libssl-dev libelf-dev xz-utils curl
+sudo chmod 666 /dev/kvm 2>/dev/null || true
 echo "::endgroup::"
 
-chmod +x tools/build/*.sh tools/qemu/*.sh tools/test/*.sh tools/ci/*.sh tools/android/*.sh system/init
+chmod +x tools/build/*.sh tools/qemu/*.sh tools/test/*.sh tools/ci/*.sh tools/android/*.sh system/init system/init-android
 
 echo "::group::initramfs"
 ./tools/build/build-initramfs.sh
@@ -32,13 +33,27 @@ echo "::group::Teste do kernel (Binder, namespaces, cgroups)"
 ./tools/test/kernel-test.sh
 echo "::endgroup::"
 
+# Libera espaco em disco antes da etapa Android
+rm -rf out/linux-*/ out/linux-*.tar.xz
+
 # --- Lay-Android (experimental: falha aqui vira aviso, nao derruba o pipeline) ---
 echo "::group::Lay-Android: rootfs de referencia"
-if ./tools/android/fetch-rootfs.sh && ./tools/test/android-check.sh; then
-  echo "Lay-Android: rootfs Android validado"
+if ./tools/android/fetch-rootfs.sh; then
+  ./tools/test/android-check.sh || echo "::warning::Lay-Android: faltam componentes no rootfs (veja acima)"
 else
-  echo "::warning::Lay-Android: etapa experimental falhou (veja o log desta etapa)"
+  echo "::warning::Lay-Android: nao foi possivel obter o rootfs Android"
 fi
 echo "::endgroup::"
+
+if sudo test -d out/android-rootfs; then
+  echo "::group::Lay-Android: boot do Android no kernel do Lay-OS (etapa 2)"
+  docker image prune -af >/dev/null 2>&1 || true
+  if ./tools/android/make-disk.sh && ./tools/test/android-boot-test.sh; then
+    echo "Lay-Android: o init do Android rodou sobre o kernel do Lay-OS"
+  else
+    echo "::warning::Lay-Android: o boot do Android ainda nao funcionou (veja out/android-boot.log)"
+  fi
+  echo "::endgroup::"
+fi
 
 echo "Pipeline concluido com sucesso"
