@@ -1,6 +1,6 @@
 #!/bin/sh
 # Lay-OS: init da camada Android (Lay-Android), etapa 2.
-# Monta o disco com o rootfs Android, prepara /dev + binderfs e entrega o controle ao init do Android.
+# Monta o disco com o rootfs Android, prepara /dev + binderfs + rede e entrega o controle ao init do Android.
 
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
@@ -25,6 +25,16 @@ if ! mount -t ext4 -o rw /dev/vda /android; then
   exec sh
 fi
 log "rootfs Android montado"
+
+# Rede (QEMU user-net): IP fixo para o adb por TCP funcionar sem DHCP no Android
+if ip link show eth0 >/dev/null 2>&1; then
+  ip addr add 10.0.2.15/24 dev eth0 2>/dev/null
+  ip link set eth0 up 2>/dev/null
+  ip route add default via 10.0.2.2 2>/dev/null
+  log "rede configurada: eth0 10.0.2.15"
+else
+  log "AVISO: eth0 nao encontrada (sem rede no Android)"
+fi
 
 # /dev do Android: tmpfs com os nos basicos + binderfs
 mount -t tmpfs -o mode=755 tmpfs /android/dev

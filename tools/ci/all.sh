@@ -10,6 +10,7 @@ echo "::group::Dependencias"
 sudo apt-get update
 sudo apt-get install -y qemu-system-x86 busybox-static cpio e2fsprogs \
   build-essential bc bison flex libssl-dev libelf-dev xz-utils curl
+sudo apt-get install -y adb || echo "::warning::pacote adb indisponivel; a verificacao por adb sera pulada"
 sudo chmod 666 /dev/kvm 2>/dev/null || true
 echo "::endgroup::"
 
