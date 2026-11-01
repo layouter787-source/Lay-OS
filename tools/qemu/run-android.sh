@@ -12,8 +12,13 @@ for f in "$INITRD" "$DISK" "$KERNEL"; do
   [[ -r "$f" ]] || { echo "erro: arquivo ausente: $f" >&2; exit 1; }
 done
 
-ACCEL=(-cpu max)
-if [[ -w /dev/kvm ]]; then ACCEL=(-enable-kvm -cpu host); fi
+if [[ -w /dev/kvm ]]; then
+  ACCEL=(-enable-kvm -cpu host)
+  echo "[host] aceleracao: KVM"
+else
+  ACCEL=(-cpu max)
+  echo "[host] aceleracao: TCG (sem KVM, bem mais lento)"
+fi
 
 exec qemu-system-x86_64 \
   "${ACCEL[@]}" \

@@ -1,6 +1,12 @@
 # Fragmento adicional do kernel para rodar o Android (Lay-Android)
 # Aplicado depois de layos_x86.fragment por tools/build/build-kernel.sh
 
+# Dispositivos loop e sistemas de arquivos usados pelos APEX do Android 12+
+CONFIG_BLK_DEV_LOOP=y
+CONFIG_BLK_DEV_LOOP_MIN_COUNT=32
+CONFIG_EROFS_FS=y
+CONFIG_KEYS=y
+
 # Monitoramento de pressao de memoria (lmkd) e controle de recursos
 CONFIG_PSI=y
 CONFIG_CGROUP_CPUACCT=y
