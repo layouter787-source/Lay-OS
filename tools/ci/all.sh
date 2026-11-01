@@ -8,8 +8,9 @@ cd "$ROOT"
 
 echo "::group::Dependencias"
 sudo apt-get update
-sudo apt-get install -y qemu-system-x86 busybox-static cpio e2fsprogs \
-  build-essential bc bison flex libssl-dev libelf-dev xz-utils curl
+sudo apt-get install -y qemu-system-x86 qemu-system-arm busybox-static cpio e2fsprogs \
+  build-essential bc bison flex libssl-dev libelf-dev xz-utils curl bzip2 file \
+  gcc-aarch64-linux-gnu
 sudo apt-get install -y adb || echo "::warning::pacote adb indisponivel; a verificacao por adb sera pulada"
 sudo chmod 666 /dev/kvm 2>/dev/null || true
 echo "::endgroup::"
@@ -20,7 +21,7 @@ echo "::group::initramfs"
 ./tools/build/build-initramfs.sh
 echo "::endgroup::"
 
-echo "::group::Kernel Lay-OS"
+echo "::group::Kernel Lay-OS (x86_64)"
 ./tools/build/build-kernel.sh
 echo "::endgroup::"
 
@@ -34,7 +35,7 @@ echo "::group::Teste do kernel (Binder, namespaces, cgroups)"
 ./tools/test/kernel-test.sh
 echo "::endgroup::"
 
-# Libera espaco em disco antes da etapa Android
+# Libera espaco em disco antes das etapas seguintes
 rm -rf out/linux-*/ out/linux-*.tar.xz
 
 # --- Lay-Android (experimental: falha aqui vira aviso, nao derruba o pipeline) ---
@@ -56,5 +57,19 @@ if sudo test -d out/android-rootfs; then
   fi
   echo "::endgroup::"
 fi
+
+# Libera espaco: o rootfs e o disco do Android nao sao mais necessarios
+sudo rm -rf out/android-rootfs out/android.img
+
+# --- arm64 (experimental): primeiro passo rumo a celulares reais ---
+echo "::group::Lay-OS arm64 (QEMU virt)"
+if (( SECONDS > 2900 )); then
+  echo "::warning::arm64 pulado: o tempo do pipeline ja passou de 48 min"
+elif ./tools/build/build-busybox-arm64.sh && ./tools/build/build-kernel-arm64.sh && ./tools/test/arm64-boot-test.sh; then
+  echo "Lay-OS arm64: iniciou no QEMU"
+else
+  echo "::warning::Lay-OS arm64: etapa experimental falhou (veja o log desta etapa)"
+fi
+echo "::endgroup::"
 
 echo "Pipeline concluido com sucesso"

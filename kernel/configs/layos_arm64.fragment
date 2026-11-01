@@ -1,0 +1,17 @@
+# Fragmento do kernel Lay-OS para arm64 (QEMU virt hoje; celulares reais depois)
+# Aplicado depois de layos_x86.fragment e layos_android.fragment por tools/build/build-kernel-arm64.sh
+
+# Console serial e dispositivos virtuais da maquina QEMU 'virt'
+CONFIG_SERIAL_AMBA_PL011=y
+CONFIG_SERIAL_AMBA_PL011_CONSOLE=y
+CONFIG_VIRTIO_MMIO=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_PCI=y
+CONFIG_PCI_HOST_GENERIC=y
+CONFIG_VIRTIO_BLK=y
+CONFIG_VIRTIO_NET=y
+CONFIG_RTC_DRV_PL031=y
+CONFIG_ARM_PSCI_FW=y
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y

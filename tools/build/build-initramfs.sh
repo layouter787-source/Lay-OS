@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Gera um initramfs com BusyBox + um init escolhido.
-#   LAYOS_INIT           script de init (padrao: system/init)
-#   LAYOS_INITRAMFS_OUT  arquivo de saida (padrao: out/initramfs.cpio.gz)
-#   LAYOS_RFS_NAME       nome da pasta temporaria em out/ (padrao: rootfs)
+#   LAYOS_INIT                   script de init (padrao: system/init)
+#   LAYOS_INITRAMFS_OUT          arquivo de saida (padrao: out/initramfs.cpio.gz)
+#   LAYOS_RFS_NAME               nome da pasta temporaria em out/ (padrao: rootfs)
+#   BUSYBOX                      binario do busybox a incluir (padrao: o do host)
+#   LAYOS_APPLET_LIST_BUSYBOX    busybox do host usado so para listar os applets
+#                                (necessario quando BUSYBOX e de outra arquitetura)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -16,6 +19,7 @@ if [[ -z "$BUSYBOX" ]]; then
   echo "erro: busybox nao encontrado. Instale 'busybox-static' (Debian/Ubuntu) ou defina BUSYBOX=/caminho." >&2
   exit 1
 fi
+LIST_BB="${LAYOS_APPLET_LIST_BUSYBOX:-$BUSYBOX}"
 
 rm -rf "$RFS"
 mkdir -p "$RFS"/{bin,sbin,usr/bin,usr/sbin,proc,sys,dev,run,tmp,root,etc,android}
@@ -24,7 +28,7 @@ cp "$BUSYBOX" "$RFS/bin/busybox"
 chmod +x "$RFS/bin/busybox"
 
 # Cria os links dos applets dentro do rootfs
-(cd "$RFS" && ./bin/busybox --list-full 2>/dev/null | while read -r applet; do
+(cd "$RFS" && "$LIST_BB" --list-full 2>/dev/null | while read -r applet; do
   [[ "$applet" == "bin/busybox" ]] && continue
   mkdir -p "$(dirname "$applet")"
   depth=$(awk -F/ '{print NF-1}' <<<"$applet")
