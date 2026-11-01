@@ -11,6 +11,10 @@ SRC="$OUT/linux-$VER"
 TARBALL="$OUT/linux-$VER.tar.xz"
 URL="https://cdn.kernel.org/pub/linux/kernel/v${MAJOR}.x/linux-${VER}.tar.xz"
 
+# Compiladores novos (GCC 15+) usam C23 por padrao, e o codigo de boot do kernel 6.6
+# (arch/x86/realmode) nao compila assim. Forcamos gnu11 em todas as compilacoes.
+MAKEARGS=(CC="gcc -std=gnu11" HOSTCC="gcc -std=gnu11")
+
 mkdir -p "$OUT"
 
 if [[ ! -d "$SRC" ]]; then
@@ -20,12 +24,13 @@ if [[ ! -d "$SRC" ]]; then
 fi
 
 cd "$SRC"
+echo ">> compilador: $(gcc --version | head -n1)"
 echo ">> configurando (defconfig + fragmentos Lay-OS)"
-make defconfig >/dev/null
-./scripts/kconfig/merge_config.sh -m .config \
+make "${MAKEARGS[@]}" defconfig >/dev/null
+KCONFIG_CONFIG=.config ./scripts/kconfig/merge_config.sh -m .config \
   "$ROOT/kernel/configs/layos_x86.fragment" \
   "$ROOT/kernel/configs/layos_android.fragment" >/dev/null
-make olddefconfig >/dev/null
+make "${MAKEARGS[@]}" olddefconfig >/dev/null
 
 # Confere se as opcoes essenciais do Lay-OS ficaram ativas
 for opt in ANDROID_BINDER_IPC ANDROID_BINDERFS USER_NS PID_NS CGROUPS SECCOMP SECURITY_LANDLOCK DEVTMPFS BLK_DEV_INITRD EXT4_FS VIRTIO_BLK; do
@@ -36,7 +41,7 @@ for opt in ANDROID_BINDER_IPC ANDROID_BINDERFS USER_NS PID_NS CGROUPS SECCOMP SE
 done
 
 echo ">> compilando com $(nproc) nucleos"
-make -j"$(nproc)" bzImage
+make "${MAKEARGS[@]}" -j"$(nproc)" bzImage
 
 cp arch/x86/boot/bzImage "$OUT/bzImage"
 cp .config "$OUT/kernel.config"
