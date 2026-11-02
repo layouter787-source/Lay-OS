@@ -7,6 +7,10 @@ CONFIG_BLK_DEV_LOOP_MIN_COUNT=32
 CONFIG_EROFS_FS=y
 CONFIG_KEYS=y
 
+# Gerador de numeros aleatorios (Android 13: prng_seeder usa /dev/hw_random)
+CONFIG_HW_RANDOM=y
+CONFIG_HW_RANDOM_VIRTIO=y
+
 # Monitoramento de pressao de memoria (lmkd) e controle de recursos
 CONFIG_PSI=y
 CONFIG_CGROUP_CPUACCT=y

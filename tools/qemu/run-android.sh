@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Executa o Lay-OS com a camada Android no QEMU (kernel do Lay-OS + disco android.img).
 # A porta 5555 do Android (adb por TCP) fica disponivel em 127.0.0.1:5555 no host.
+# O stdin do QEMU e a porta serial: o shell do Android (console:/ $) recebe os comandos enviados por la.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -20,16 +21,18 @@ else
   echo "[host] aceleracao: TCG (sem KVM, bem mais lento)"
 fi
 
-# ignore_loglevel: o Android reduz o nivel de log do console durante o boot; sem isso
-# o log serial "para" mesmo com o sistema vivo, e nao conseguimos diagnosticar.
+# ignore_loglevel + printk.devkmsg=on: sem isso o kernel suprime (ratelimit) as mensagens do init do
+# Android e baixa o nivel do console, e o log serial fica incompleto.
+# virtio-rng: o Android 13 (prng_seeder) exige /dev/hw_random.
 exec qemu-system-x86_64 \
   "${ACCEL[@]}" \
   -m "${LAYOS_ANDROID_RAM:-4096}" \
   -smp "${LAYOS_ANDROID_CPUS:-4}" \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
-  -append "console=ttyS0 loglevel=8 ignore_loglevel printk.time=1 rdinit=/init androidboot.hardware=redroid androidboot.selinux=permissive androidboot.console=ttyS0" \
+  -append "console=ttyS0 loglevel=8 ignore_loglevel printk.devkmsg=on printk.time=1 rdinit=/init androidboot.hardware=redroid androidboot.selinux=permissive androidboot.console=ttyS0" \
   -drive file="$DISK",format=raw,if=virtio \
+  -device virtio-rng-pci \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:5555-10.0.2.15:5555 \
   -device virtio-net-pci,netdev=n0 \
   -nographic -no-reboot
