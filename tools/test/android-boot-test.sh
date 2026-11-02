@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lay-Android, etapas 2 e 3: inicia o Android sobre o kernel do Lay-OS, confirma o boot por adb,
-# instala um APK de verdade e abre o app. Se o boot nao completar, investiga por dentro
-# (getprop/ps/logcat enviados ao shell do Android pela porta serial).
+# instala um APK de verdade e abre o app. Se o boot demorar/nao completar, investiga por dentro
+# (getprop/ps/logcat enviados ao shell do Android pela porta serial) em tres momentos.
 # Retorna erro apenas se o init do Android nem chegou a rodar.
 set -uo pipefail
 
@@ -12,9 +12,11 @@ SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
 SERIAL="127.0.0.1:5555"
 APK_URL="${LAYOS_TEST_APK_URL:-https://f-droid.org/F-Droid.apk}"
 APK_PKG="${LAYOS_TEST_APK_PKG:-org.fdroid.fdroid}"
-DIAG1="${LAYOS_ANDROID_DIAG1:-90}"
-DIAG2="${LAYOS_ANDROID_DIAG2:-210}"
-END_AFTER="${LAYOS_ANDROID_END:-250}"
+# O primeiro boot do Android (/data vazio) e lento: damos ate ~12 min antes de desistir.
+DIAG1="${LAYOS_ANDROID_DIAG1:-150}"
+DIAG2="${LAYOS_ANDROID_DIAG2:-400}"
+DIAG3="${LAYOS_ANDROID_DIAG3:-640}"
+END_AFTER="${LAYOS_ANDROID_END:-700}"
 mkdir -p "$ROOT/out"
 
 adbx() { timeout "${ADB_T:-30}" adb -s "$SERIAL" "$@" 2>&1 | tr -d '\r'; }
@@ -32,8 +34,8 @@ START=$SECONDS
 timeout "$TIMEOUT" "$ROOT/tools/qemu/run-android.sh" <&3 >"$LOG" 2>&1 &
 QPID=$!
 
-DIAGCMD='echo ==LAYOS-DIAG-BEGIN==; getprop | grep -E "init.svc|sys.boot|vold|ro.crypto|bootcomplete"; echo ==LAYOS-PS==; ps -A | head -n 70; echo ==LAYOS-LOGCAT==; logcat -d -t 120; echo ==LAYOS-DIAG-END=='
-SENT1=0; SENT2=0
+DIAGCMD='echo ==LAYOS-DIAG-BEGIN==; getprop | grep -E "init.svc|sys.boot|vold|ro.crypto|bootcomplete"; echo ==LAYOS-PS==; ps -A | head -n 80; echo ==LAYOS-KEYLOG==; logcat -d -b all -t 800 | grep -E "FATAL|AndroidRuntime|SystemServer|Zygote|PackageManager|ActivityManager|Watchdog|dex2oat|died|crash|Exception" | tail -n 80; echo ==LAYOS-LOGCAT==; logcat -d -t 100; echo ==LAYOS-DIAG-END=='
+SENT1=0; SENT2=0; SENT3=0
 
 HAVE_ADB=0; command -v adb >/dev/null 2>&1 && HAVE_ADB=1
 ADB_UP=0; BOOTED=0
@@ -51,6 +53,7 @@ while (( SECONDS < deadline )) && kill -0 "$QPID" 2>/dev/null; do
   fi
   if (( ! SENT1 && el >= DIAG1 )); then printf '%s\n' "$DIAGCMD" >&3; SENT1=1; fi
   if (( ! SENT2 && el >= DIAG2 )); then printf '%s\n' "$DIAGCMD" >&3; SENT2=1; fi
+  if (( ! SENT3 && el >= DIAG3 )); then printf '%s\n' "$DIAGCMD" >&3; SENT3=1; fi
   if (( el >= END_AFTER )); then break; fi
   sleep 5
 done
@@ -60,7 +63,6 @@ BOOT_WALL=$((SECONDS - START))
 REL=""; SDK=""; PKGS=0; INST_OK=0; APP_OK=0; DL_OK=0
 INSTALL_OUT=""; FOCUS=""; UITEXT=""; MODEL=""; SIZE=""
 if (( BOOTED )); then
-  # espera o PackageManager ficar pronto
   for _ in $(seq 1 36); do
     PKGS="$(ADB_T=20 adbx shell pm list packages | grep -c '^package:')"
     (( PKGS > 20 )) && break
@@ -130,10 +132,13 @@ GUEST="$(grep -o '^\[ *[0-9]*\.[0-9]*\]' "$LOG" | tail -n1 | tr -d '[] ')"
 SERVICES="$(grep -o "starting service '[^']*'" "$LOG" | uniq | sed "s/starting service //" | head -n 60 | tr '\n' ' ')"
 ERRS="$(grep -E 'init: .*(fail|Fail|error|Error|denied|Unable|Could not|cannot|timed out|Wait for|wait_for)' "$LOG" | grep -v Untracked | head -n 30)"
 CRASHES="$(grep -E 'received signal|Aborted|Fatal signal|SIGSEGV' "$LOG" | head -n 10)"
-INNER="$(sed -n '/^==LAYOS-DIAG-BEGIN==/,/^==LAYOS-DIAG-END==/p' "$LOG" | tr -d '\r')"
-SVCSTATE="$(grep -E '^\[init\.svc\.' <<<"$INNER" | sort -u | head -n 90)"
-PSOUT="$(sed -n '/^==LAYOS-PS==/,/^==LAYOS-LOGCAT==/p' <<<"$INNER" | tail -n 75)"
-LOGCATOUT="$(sed -n '/^==LAYOS-LOGCAT==/,/^==LAYOS-DIAG-END==/p' <<<"$INNER" | tail -n 130)"
+# usa apenas o ultimo bloco de diagnostico interno
+INNER="$(awk '/^==LAYOS-DIAG-BEGIN==/{buf=""} {buf=buf $0 "\n"} /^==LAYOS-DIAG-END==/{last=buf} END{printf "%s", last}' "$LOG" | tr -d '\r')"
+SVCSTATE="$(grep -E '^\[init\.svc\.' <<<"$INNER" | sort -u | grep -v -E '\[(stopped)\]' | head -n 90)"
+STOPPED="$(grep -E '^\[init\.svc\.' <<<"$INNER" | grep -c '\[stopped\]')"
+PSOUT="$(sed -n '/^==LAYOS-PS==/,/^==LAYOS-KEYLOG==/p' <<<"$INNER" | tail -n 85)"
+KEYLOG="$(sed -n '/^==LAYOS-KEYLOG==/,/^==LAYOS-LOGCAT==/p' <<<"$INNER" | tail -n 85)"
+LOGCATOUT="$(sed -n '/^==LAYOS-LOGCAT==/,/^==LAYOS-DIAG-END==/p' <<<"$INNER" | tail -n 105)"
 REASON="diagnostico concluido em ${BOOT_WALL}s sem boot completo"; (( BOOTED )) && REASON="boot completo em ${BOOT_WALL}s"
 
 echo "== Diagnostico =="
@@ -151,7 +156,7 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
   [[ -n "$INFO" ]] && { echo ""; echo "**$INFO**"; }
   echo ""
   echo "- $ACCEL"
-  echo "- $REASON (tempo do Android: ${GUEST:-?}s)"
+  echo "- $REASON (ultimo log do kernel: ${GUEST:-?}s)"
   echo "- Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
   echo ""
   if (( INST_OK )); then
@@ -165,18 +170,11 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
     echo "</details>"
     echo ""
   fi
-  echo "<details><summary>Servicos iniciados (ordem)</summary>"
-  echo ""
-  echo '```'
-  echo "${SERVICES:-nenhum}"
-  echo '```'
-  echo "</details>"
   if (( ! BOOTED )); then
-    echo ""
-    echo "<details open><summary>Estado dos servicos por dentro do Android (getprop init.svc)</summary>"
+    echo "<details open><summary>Erros do Android (logcat filtrado: system_server, zygote, PackageManager...)</summary>"
     echo ""
     echo '```'
-    echo "${SVCSTATE:-sem dados: o shell do Android nao respondeu}"
+    echo "${KEYLOG:-sem dados}"
     echo '```'
     echo "</details>"
     echo ""
@@ -187,13 +185,27 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
     echo '```'
     echo "</details>"
     echo ""
+    echo "<details><summary>Servicos que NAO estao parados (${STOPPED:-0} parados nao listados)</summary>"
+    echo ""
+    echo '```'
+    echo "${SVCSTATE:-sem dados: o shell do Android nao respondeu}"
+    echo '```'
+    echo "</details>"
+    echo ""
     echo "<details><summary>logcat do Android (ultimas linhas)</summary>"
     echo ""
     echo '```'
     echo "${LOGCATOUT:-sem dados}"
     echo '```'
     echo "</details>"
+    echo ""
   fi
+  echo "<details><summary>Servicos iniciados (ordem)</summary>"
+  echo ""
+  echo '```'
+  echo "${SERVICES:-nenhum}"
+  echo '```'
+  echo "</details>"
   echo ""
   echo "<details><summary>Erros do init e falhas de servicos</summary>"
   echo ""
