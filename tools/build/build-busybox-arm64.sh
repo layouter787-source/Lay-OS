@@ -11,6 +11,7 @@ URL="https://busybox.net/downloads/busybox-${VER}.tar.bz2"
 CROSS="aarch64-linux-gnu-"
 
 command -v "${CROSS}gcc" >/dev/null || { echo "erro: instale gcc-aarch64-linux-gnu" >&2; exit 1; }
+echo ">> compilador: $(${CROSS}gcc --version | head -n1)"
 
 mkdir -p "$OUT"
 if [[ ! -d "$SRC" ]]; then
@@ -21,13 +22,17 @@ fi
 cd "$SRC"
 MK=(ARCH=arm64 CROSS_COMPILE="$CROSS" HOSTCC="gcc -std=gnu11" EXTRA_CFLAGS="-std=gnu11")
 
+echo ">> configurando busybox (defconfig estatico)"
 make "${MK[@]}" defconfig >/dev/null
 sed -i 's/^# CONFIG_STATIC is not set/CONFIG_STATIC=y/' .config
-# 'tc' nao compila com kernels/headers novos e nao e necessario
+# 'tc' nao compila com headers novos e nao e necessario
 sed -i 's/^CONFIG_TC=y/# CONFIG_TC is not set/' .config
 sed -i 's/^CONFIG_FEATURE_TC_INGRESS=y/# CONFIG_FEATURE_TC_INGRESS is not set/' .config
-yes "" | make "${MK[@]}" oldconfig >/dev/null
 
+# 'yes' termina com SIGPIPE (codigo 141); com pipefail isso derrubaria o script
+( set +o pipefail; yes "" | make "${MK[@]}" oldconfig >/dev/null )
+
+echo ">> compilando busybox com $(nproc) nucleos"
 make "${MK[@]}" -j"$(nproc)" busybox
 
 cp busybox "$OUT/busybox-arm64"

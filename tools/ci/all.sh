@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
+SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
+
 echo "::group::Dependencias"
 sudo apt-get update
 sudo apt-get install -y qemu-system-x86 qemu-system-arm busybox-static cpio e2fsprogs \
@@ -38,6 +40,30 @@ echo "::endgroup::"
 # Libera espaco em disco antes das etapas seguintes
 rm -rf out/linux-*/ out/linux-*.tar.xz
 
+# --- arm64 (experimental): primeiro passo rumo a celulares reais ---
+# Roda antes do Android porque e mais rapido e o erro (se houver) aparece no Summary.
+echo "::group::Lay-OS arm64 (QEMU virt)"
+run_arm64() {
+  ./tools/build/build-busybox-arm64.sh && ./tools/build/build-kernel-arm64.sh && ./tools/test/arm64-boot-test.sh
+}
+if run_arm64 2>&1 | tee out/arm64-build.log; then
+  echo "Lay-OS arm64: iniciou no QEMU"
+else
+  echo "::warning::Lay-OS arm64: etapa experimental falhou (veja o Summary)"
+  {
+    echo "### Lay-OS arm64: a etapa falhou"
+    echo ""
+    echo "<details open><summary>Ultimas linhas do log (inclui o erro)</summary>"
+    echo ""
+    echo '```'
+    tail -n 45 out/arm64-build.log
+    echo '```'
+    echo "</details>"
+  } >> "$SUMMARY"
+fi
+echo "::endgroup::"
+rm -rf out/linux-arm64-*/ out/linux-*.tar.xz out/busybox-1*/
+
 # --- Lay-Android (experimental: falha aqui vira aviso, nao derruba o pipeline) ---
 echo "::group::Lay-Android: rootfs de referencia"
 if ./tools/android/fetch-rootfs.sh; then
@@ -57,19 +83,5 @@ if sudo test -d out/android-rootfs; then
   fi
   echo "::endgroup::"
 fi
-
-# Libera espaco: o rootfs e o disco do Android nao sao mais necessarios
-sudo rm -rf out/android-rootfs out/android.img
-
-# --- arm64 (experimental): primeiro passo rumo a celulares reais ---
-echo "::group::Lay-OS arm64 (QEMU virt)"
-if (( SECONDS > 2900 )); then
-  echo "::warning::arm64 pulado: o tempo do pipeline ja passou de 48 min"
-elif ./tools/build/build-busybox-arm64.sh && ./tools/build/build-kernel-arm64.sh && ./tools/test/arm64-boot-test.sh; then
-  echo "Lay-OS arm64: iniciou no QEMU"
-else
-  echo "::warning::Lay-OS arm64: etapa experimental falhou (veja o log desta etapa)"
-fi
-echo "::endgroup::"
 
 echo "Pipeline concluido com sucesso"
