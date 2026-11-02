@@ -20,13 +20,15 @@ else
   echo "[host] aceleracao: TCG (sem KVM, bem mais lento)"
 fi
 
+# ignore_loglevel: o Android reduz o nivel de log do console durante o boot; sem isso
+# o log serial "para" mesmo com o sistema vivo, e nao conseguimos diagnosticar.
 exec qemu-system-x86_64 \
   "${ACCEL[@]}" \
   -m "${LAYOS_ANDROID_RAM:-4096}" \
   -smp "${LAYOS_ANDROID_CPUS:-4}" \
   -kernel "$KERNEL" \
   -initrd "$INITRD" \
-  -append "console=ttyS0 loglevel=7 rdinit=/init androidboot.hardware=redroid androidboot.selinux=permissive androidboot.console=ttyS0" \
+  -append "console=ttyS0 loglevel=8 ignore_loglevel printk.time=1 rdinit=/init androidboot.hardware=redroid androidboot.selinux=permissive androidboot.console=ttyS0" \
   -drive file="$DISK",format=raw,if=virtio \
   -netdev user,id=n0,hostfwd=tcp:127.0.0.1:5555-10.0.2.15:5555 \
   -device virtio-net-pci,netdev=n0 \
