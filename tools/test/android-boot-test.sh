@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Lay-Android, etapas 2 e 3: inicia o Android sobre o kernel do Lay-OS, confirma o boot por adb,
-# instala um APK de verdade e abre o app. Se o boot demorar/nao completar, investiga por dentro
-# (getprop/ps/logcat enviados ao shell do Android pela porta serial) em tres momentos.
+# Lay-Android, etapas 2 e 3: inicia o Android sobre o kernel do Lay-OS, confirma o boot,
+# instala um APK de verdade e abre o app.
+# O controle e feito pelo SHELL DO ANDROID na porta serial (console:/ $), que e mais confiavel que adb;
+# o adb e testado a parte, para o objetivo de depurar pelo Android Studio.
 # Retorna erro apenas se o init do Android nem chegou a rodar.
 set -uo pipefail
 
@@ -10,9 +11,8 @@ LOG="$ROOT/out/android-boot.log"
 FIFO="$ROOT/out/android-console.fifo"
 SUMMARY="${GITHUB_STEP_SUMMARY:-/dev/null}"
 SERIAL="127.0.0.1:5555"
-APK_URL="${LAYOS_TEST_APK_URL:-https://f-droid.org/F-Droid.apk}"
 APK_PKG="${LAYOS_TEST_APK_PKG:-org.fdroid.fdroid}"
-# O primeiro boot do Android (/data vazio) e lento: damos ate ~12 min antes de desistir.
+POLL_FROM="${LAYOS_ANDROID_POLL_FROM:-40}"
 DIAG1="${LAYOS_ANDROID_DIAG1:-150}"
 DIAG2="${LAYOS_ANDROID_DIAG2:-400}"
 DIAG3="${LAYOS_ANDROID_DIAG3:-640}"
@@ -26,7 +26,7 @@ LAYOS_INITRAMFS_OUT="$ROOT/out/initramfs-android.cpio.gz" \
 LAYOS_RFS_NAME="rootfs-android" \
   "$ROOT/tools/build/build-initramfs.sh"
 
-TIMEOUT="${LAYOS_ANDROID_TIMEOUT:-900}"
+TIMEOUT="${LAYOS_ANDROID_TIMEOUT:-1200}"
 rm -f "$FIFO"; mkfifo "$FIFO"
 exec 3<>"$FIFO"
 
@@ -34,63 +34,82 @@ START=$SECONDS
 timeout "$TIMEOUT" "$ROOT/tools/qemu/run-android.sh" <&3 >"$LOG" 2>&1 &
 QPID=$!
 
+# --- helpers do shell serial ---
+ser()  { printf '%s\n' "$1" >&3; }
+val()  { grep -a "^$1=" "$LOG" | tail -n1 | cut -d= -f2- | tr -d '\r'; }
+have() { grep -aq "^$1=" "$LOG"; }
+wait_val() { local t=$SECONDS; while (( SECONDS - t < $2 )); do have "$1" && return 0; sleep 2; done; return 1; }
+
 DIAGCMD='echo ==LAYOS-DIAG-BEGIN==; getprop | grep -E "init.svc|sys.boot|vold|ro.crypto|bootcomplete"; echo ==LAYOS-PS==; ps -A | head -n 80; echo ==LAYOS-KEYLOG==; logcat -d -b all -t 800 | grep -E "FATAL|AndroidRuntime|SystemServer|Zygote|PackageManager|ActivityManager|Watchdog|dex2oat|died|crash|Exception" | tail -n 80; echo ==LAYOS-LOGCAT==; logcat -d -t 100; echo ==LAYOS-DIAG-END=='
 SENT1=0; SENT2=0; SENT3=0
 
-HAVE_ADB=0; command -v adb >/dev/null 2>&1 && HAVE_ADB=1
-ADB_UP=0; BOOTED=0
-deadline=$((START + TIMEOUT - 15))
-
+BOOTED=0; n=0
+deadline=$((START + TIMEOUT - 20))
 while (( SECONDS < deadline )) && kill -0 "$QPID" 2>/dev/null; do
   el=$((SECONDS - START))
-  if (( HAVE_ADB )); then
-    adb connect "$SERIAL" >/dev/null 2>&1
-    if [[ "$(adbx get-state)" == "device" ]]; then
-      ADB_UP=1
-      v="$(ADB_T=10 adbx shell getprop sys.boot_completed)"
-      if [[ "$v" == "1" ]]; then BOOTED=1; break; fi
-    fi
+  if (( el >= POLL_FROM )); then
+    n=$((n + 1))
+    ser "echo LAYOS_BC${n}=\$(getprop sys.boot_completed)"
+    sleep 3
+    if [[ "$(val LAYOS_BC${n})" == "1" ]]; then BOOTED=1; break; fi
   fi
-  if (( ! SENT1 && el >= DIAG1 )); then printf '%s\n' "$DIAGCMD" >&3; SENT1=1; fi
-  if (( ! SENT2 && el >= DIAG2 )); then printf '%s\n' "$DIAGCMD" >&3; SENT2=1; fi
-  if (( ! SENT3 && el >= DIAG3 )); then printf '%s\n' "$DIAGCMD" >&3; SENT3=1; fi
+  if (( ! SENT1 && el >= DIAG1 )); then ser "$DIAGCMD"; SENT1=1; fi
+  if (( ! SENT2 && el >= DIAG2 )); then ser "$DIAGCMD"; SENT2=1; fi
+  if (( ! SENT3 && el >= DIAG3 )); then ser "$DIAGCMD"; SENT3=1; fi
   if (( el >= END_AFTER )); then break; fi
-  sleep 5
+  sleep 12
 done
 BOOT_WALL=$((SECONDS - START))
 
-# --- Etapa 3: com o Android no ar, confirmar versao, instalar um APK e abrir o app ---
-REL=""; SDK=""; PKGS=0; INST_OK=0; APP_OK=0; DL_OK=0
-INSTALL_OUT=""; FOCUS=""; UITEXT=""; MODEL=""; SIZE=""
+REL=""; SDK=""; MODEL=""; WM=""; PKGS=0
+INST_OK=0; APP_OK=0; INSTALL_OUT=""; PIDV=""; FOCUS=""; UITEXT=""
 if (( BOOTED )); then
-  for _ in $(seq 1 36); do
-    PKGS="$(ADB_T=20 adbx shell pm list packages | grep -c '^package:')"
-    (( PKGS > 20 )) && break
-    sleep 5
-  done
-  REL="$(ADB_T=10 adbx shell getprop ro.build.version.release)"
-  SDK="$(ADB_T=10 adbx shell getprop ro.build.version.sdk)"
-  MODEL="$(ADB_T=10 adbx shell getprop ro.product.model)"
-  SIZE="$(ADB_T=10 adbx shell wm size | tail -n1)"
+  ser 'echo LAYOS_REL=$(getprop ro.build.version.release)'
+  ser 'echo LAYOS_SDK=$(getprop ro.build.version.sdk)'
+  ser 'echo LAYOS_MODEL=$(getprop ro.product.model)'
+  ser 'echo LAYOS_WM=$(wm size 2>&1 | tail -n1)'
+  wait_val LAYOS_WM 20
+  REL="$(val LAYOS_REL)"; SDK="$(val LAYOS_SDK)"; MODEL="$(val LAYOS_MODEL)"; WM="$(val LAYOS_WM)"
 
-  echo ">> baixando APK de teste: $APK_URL"
-  if curl -fsSL -o "$ROOT/out/test.apk" "$APK_URL"; then DL_OK=1; fi
-  if (( DL_OK )); then
-    INSTALL_OUT="$(ADB_T=180 adbx install -r "$ROOT/out/test.apk" | tail -n 3)"
-    grep -q 'Success' <<<"$INSTALL_OUT" && INST_OK=1
-  else
-    INSTALL_OUT="nao foi possivel baixar o APK"
-  fi
+  for i in $(seq 1 30); do
+    ser "echo LAYOS_PK${i}=\$(pm list packages | wc -l | tr -d ' ')"
+    wait_val "LAYOS_PK${i}" 15
+    PKGS="$(val LAYOS_PK${i})"
+    [[ "$PKGS" =~ ^[0-9]+$ ]] && (( PKGS > 20 )) && break
+    PKGS=0
+    sleep 4
+  done
+
+  # instala o APK que foi colocado em /data/local/tmp/test.apk na imagem
+  ser "echo LAYOS_INST=\$(pm install -r /data/local/tmp/test.apk 2>&1 | tr '\\n' ' ')"
+  wait_val LAYOS_INST 180
+  INSTALL_OUT="$(val LAYOS_INST)"
+  grep -q 'Success' <<<"$INSTALL_OUT" && INST_OK=1
+
   if (( INST_OK )); then
-    ADB_T=30 adbx shell monkey -p "$APK_PKG" -c android.intent.category.LAUNCHER 1 >/dev/null
-    sleep 12
-    PID="$(ADB_T=10 adbx shell pidof "$APK_PKG")"
-    [[ -n "$PID" ]] && APP_OK=1
-    FOCUS="$(ADB_T=20 adbx shell dumpsys window | grep -m2 -E 'mCurrentFocus|mFocusedApp')"
-    ADB_T=30 adbx shell uiautomator dump /sdcard/ui.xml >/dev/null
-    UITEXT="$(ADB_T=20 adbx shell cat /sdcard/ui.xml | grep -o 'text="[^"]\+"' | head -n 15)"
-    ADB_T=30 adbx exec-out screencap -p > "$ROOT/out/screen.png" 2>/dev/null || true
+    ser "monkey -p $APK_PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1"
+    sleep 25
+    ser "echo LAYOS_PID=\$(pidof $APK_PKG)"
+    ser 'echo LAYOS_FOCUS=$(dumpsys window | grep -m1 mCurrentFocus)'
+    UICMD=$(cat <<'EOS'
+uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; echo LAYOS_UI=$(grep -o 'text="[^"]\+"' /sdcard/ui.xml | head -n 12 | tr '\n' '|')
+EOS
+)
+    ser "$UICMD"
+    wait_val LAYOS_UI 60
+    PIDV="$(val LAYOS_PID)"; FOCUS="$(val LAYOS_FOCUS)"; UITEXT="$(val LAYOS_UI)"
+    [[ "$PIDV" =~ ^[0-9]+ ]] && APP_OK=1
   fi
+fi
+
+# --- adb (para depurar pelo Android Studio no futuro) ---
+HAVE_ADB=0; command -v adb >/dev/null 2>&1 && HAVE_ADB=1
+ADB_STATE="n/d"; ADB_SH="n/d"; ADB_OK=0
+if (( HAVE_ADB && BOOTED )); then
+  adb connect "$SERIAL" >/dev/null 2>&1
+  ADB_STATE="$(ADB_T=15 adbx get-state)"
+  ADB_SH="$(ADB_T=20 adbx shell getprop sys.boot_completed)"
+  [[ "$ADB_SH" == "1" ]] && ADB_OK=1
 fi
 
 kill "$QPID" 2>/dev/null; sleep 1; pkill -f qemu-system-x86_64 2>/dev/null || true
@@ -116,36 +135,34 @@ stage "init do Android rodou"           "init: " && ANDROID_INIT=1
 stage "servicemanager iniciado"         "starting service 'servicemanager'" || true
 stage "zygote iniciado"                 "starting service 'zygote" || true
 stage "shell do Android na serial"      "console:/ " || true
-row "$ADB_UP" "adb conectado ao Android"
-row "$BOOTED" "boot completo confirmado por adb (sys.boot_completed=1)"
+row "$BOOTED" "boot completo (sys.boot_completed=1, lido no shell do Android)"
 row "$(( PKGS > 20 ))" "PackageManager pronto ($PKGS pacotes)"
-row "$DL_OK" "APK de teste baixado ($APK_PKG)"
-row "$INST_OK" "APK instalado no Lay-Android (adb install)"
-row "$APP_OK" "app abriu e esta em execucao"
+row "$INST_OK" "APK instalado no Lay-Android (pm install)"
+row "$APP_OK" "app abriu e esta em execucao ($APK_PKG)"
+row "$ADB_OK" "adb shell funcional (estado: $ADB_STATE)"
 
 INFO=""
-[[ -n "$REL" ]] && INFO="Android $REL (SDK $SDK), modelo $MODEL, tela $SIZE, $PKGS pacotes"
+[[ -n "$REL" ]] && INFO="Android $REL (SDK $SDK), modelo $MODEL, tela ${WM#*: }, $PKGS pacotes"
 [[ -n "$INFO" ]] && echo "INFO    $INFO"
 
-ACCEL="$(grep -m1 'aceleracao:' "$LOG" || echo 'aceleracao: desconhecida')"
-GUEST="$(grep -o '^\[ *[0-9]*\.[0-9]*\]' "$LOG" | tail -n1 | tr -d '[] ')"
-SERVICES="$(grep -o "starting service '[^']*'" "$LOG" | uniq | sed "s/starting service //" | head -n 60 | tr '\n' ' ')"
-ERRS="$(grep -E 'init: .*(fail|Fail|error|Error|denied|Unable|Could not|cannot|timed out|Wait for|wait_for)' "$LOG" | grep -v Untracked | head -n 30)"
-CRASHES="$(grep -E 'received signal|Aborted|Fatal signal|SIGSEGV' "$LOG" | head -n 10)"
-# usa apenas o ultimo bloco de diagnostico interno
+ACCEL="$(grep -a -m1 'aceleracao:' "$LOG" || echo 'aceleracao: desconhecida')"
+GUEST="$(grep -a -o '^\[ *[0-9]*\.[0-9]*\]' "$LOG" | tail -n1 | tr -d '[] ')"
+SERVICES="$(grep -a -o "starting service '[^']*'" "$LOG" | uniq | sed "s/starting service //" | head -n 60 | tr '\n' ' ')"
+ERRS="$(grep -a -E 'init: .*(fail|Fail|error|Error|denied|Unable|Could not|cannot|timed out|Wait for|wait_for)' "$LOG" | grep -a -v Untracked | head -n 30)"
+CRASHES="$(grep -a -E 'received signal|Aborted|Fatal signal|SIGSEGV' "$LOG" | head -n 10)"
 INNER="$(awk '/^==LAYOS-DIAG-BEGIN==/{buf=""} {buf=buf $0 "\n"} /^==LAYOS-DIAG-END==/{last=buf} END{printf "%s", last}' "$LOG" | tr -d '\r')"
 SVCSTATE="$(grep -E '^\[init\.svc\.' <<<"$INNER" | sort -u | grep -v -E '\[(stopped)\]' | head -n 90)"
-STOPPED="$(grep -E '^\[init\.svc\.' <<<"$INNER" | grep -c '\[stopped\]')"
 PSOUT="$(sed -n '/^==LAYOS-PS==/,/^==LAYOS-KEYLOG==/p' <<<"$INNER" | tail -n 85)"
 KEYLOG="$(sed -n '/^==LAYOS-KEYLOG==/,/^==LAYOS-LOGCAT==/p' <<<"$INNER" | tail -n 85)"
-LOGCATOUT="$(sed -n '/^==LAYOS-LOGCAT==/,/^==LAYOS-DIAG-END==/p' <<<"$INNER" | tail -n 105)"
-REASON="diagnostico concluido em ${BOOT_WALL}s sem boot completo"; (( BOOTED )) && REASON="boot completo em ${BOOT_WALL}s"
+REASON="fim do teste em ${BOOT_WALL}s sem boot completo"; (( BOOTED )) && REASON="boot completo em ${BOOT_WALL}s"
 
 echo "== Diagnostico =="
-echo "$ACCEL | $REASON | guest: ${GUEST:-?}s"
+echo "$ACCEL | $REASON | ultimo log: ${GUEST:-?}s"
 echo "Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
+echo "PID do app: ${PIDV:-n/d}"
 echo "Foco da janela: ${FOCUS:-n/d}"
 echo "Textos na tela do app: ${UITEXT:-n/d}"
+echo "adb: estado=$ADB_STATE shell=$ADB_SH"
 
 {
   echo "### Lay-Android: boot do Android + instalacao de APK"
@@ -158,11 +175,13 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
   echo "- $ACCEL"
   echo "- $REASON (ultimo log do kernel: ${GUEST:-?}s)"
   echo "- Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
+  echo "- adb: estado=\`$ADB_STATE\` | resposta do shell=\`$ADB_SH\`"
   echo ""
   if (( INST_OK )); then
-    echo "<details open><summary>App aberto: janela em foco e textos na tela</summary>"
+    echo "<details open><summary>App aberto: PID, janela em foco e textos na tela</summary>"
     echo ""
     echo '```'
+    echo "PID: ${PIDV:-n/d}"
     echo "${FOCUS:-}"
     echo "---"
     echo "${UITEXT:-sem textos}"
@@ -171,7 +190,7 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
     echo ""
   fi
   if (( ! BOOTED )); then
-    echo "<details open><summary>Erros do Android (logcat filtrado: system_server, zygote, PackageManager...)</summary>"
+    echo "<details open><summary>Erros do Android (logcat filtrado)</summary>"
     echo ""
     echo '```'
     echo "${KEYLOG:-sem dados}"
@@ -185,17 +204,10 @@ echo "Textos na tela do app: ${UITEXT:-n/d}"
     echo '```'
     echo "</details>"
     echo ""
-    echo "<details><summary>Servicos que NAO estao parados (${STOPPED:-0} parados nao listados)</summary>"
+    echo "<details><summary>Servicos que NAO estao parados</summary>"
     echo ""
     echo '```'
-    echo "${SVCSTATE:-sem dados: o shell do Android nao respondeu}"
-    echo '```'
-    echo "</details>"
-    echo ""
-    echo "<details><summary>logcat do Android (ultimas linhas)</summary>"
-    echo ""
-    echo '```'
-    echo "${LOGCATOUT:-sem dados}"
+    echo "${SVCSTATE:-sem dados}"
     echo '```'
     echo "</details>"
     echo ""
