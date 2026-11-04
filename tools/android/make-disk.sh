@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Cria out/android.img (ext4) a partir de out/android-rootfs.
-# Tambem baixa um APK de teste e o coloca em /data/local/tmp/test.apk dentro da imagem,
-# para ser instalado pelo shell do Android (sem depender de adb).
+# Tambem coloca na imagem:
+#  - um APK de teste em /data/local/tmp/test.apk (instalado pelo shell do Android, sem adb);
+#  - a chave publica do adb do host em /data/misc/adb/adb_keys (o adbd aceita o host sem pedir autorizacao).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -21,6 +22,20 @@ if curl -fsSL -o "$ROOT/out/test.apk" "$APK_URL"; then
   echo ">> APK de teste incluido na imagem ($(du -h "$ROOT/out/test.apk" | cut -f1))"
 else
   echo "AVISO: nao foi possivel baixar o APK de teste ($APK_URL)" >&2
+fi
+
+# Chave do adb do host: o adbd do Android passa a confiar nesta maquina (evita o estado 'offline')
+if command -v adb >/dev/null 2>&1; then
+  mkdir -p "$HOME/.android"
+  [[ -f "$HOME/.android/adbkey" ]] || adb keygen "$HOME/.android/adbkey" || true
+  if [[ -f "$HOME/.android/adbkey.pub" ]]; then
+    sudo mkdir -p "$RFS/data/misc/adb"
+    sudo cp "$HOME/.android/adbkey.pub" "$RFS/data/misc/adb/adb_keys"
+    sudo chown -R 1000:2000 "$RFS/data/misc/adb"
+    sudo chmod 750 "$RFS/data/misc/adb"
+    sudo chmod 640 "$RFS/data/misc/adb/adb_keys"
+    echo ">> chave do adb do host instalada em /data/misc/adb/adb_keys"
+  fi
 fi
 
 USED_MB="$(sudo du -sm "$RFS" | cut -f1)"

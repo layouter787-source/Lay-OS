@@ -62,7 +62,7 @@ done
 BOOT_WALL=$((SECONDS - START))
 
 REL=""; SDK=""; MODEL=""; WM=""; PKGS=0
-INST_OK=0; APP_OK=0; INSTALL_OUT=""; PIDV=""; FOCUS=""; UITEXT=""
+INST_OK=0; APP_OK=0; INSTALL_OUT=""; AM_OUT=""; PIDV=""; FOCUS=""; UITEXT=""; APPLOG=""; ADBPROPS=""
 if (( BOOTED )); then
   ser 'echo LAYOS_REL=$(getprop ro.build.version.release)'
   ser 'echo LAYOS_SDK=$(getprop ro.build.version.sdk)'
@@ -80,6 +80,9 @@ if (( BOOTED )); then
     sleep 4
   done
 
+  # propriedades do adb dentro do Android
+  ser 'echo LAYOS_ADBPROPS=$(getprop | grep -i adb | tr "\n" " ")'
+
   # instala o APK que foi colocado em /data/local/tmp/test.apk na imagem
   ser "echo LAYOS_INST=\$(pm install -r /data/local/tmp/test.apk 2>&1 | tr '\\n' ' ')"
   wait_val LAYOS_INST 180
@@ -87,7 +90,10 @@ if (( BOOTED )); then
   grep -q 'Success' <<<"$INSTALL_OUT" && INST_OK=1
 
   if (( INST_OK )); then
-    ser "monkey -p $APK_PKG -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1"
+    # abre o app pela intent LAUNCHER do proprio pacote
+    ser "echo LAYOS_AM=\$(am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $APK_PKG 2>&1 | tr '\\n' ' ')"
+    wait_val LAYOS_AM 90
+    AM_OUT="$(val LAYOS_AM)"
     sleep 25
     ser "echo LAYOS_PID=\$(pidof $APK_PKG)"
     ser 'echo LAYOS_FOCUS=$(dumpsys window | grep -m1 mCurrentFocus)'
@@ -97,17 +103,28 @@ EOS
 )
     ser "$UICMD"
     wait_val LAYOS_UI 60
+    ser 'echo ==LAYOS-APPLOG-BEGIN==; logcat -d -b all -t 1500 | grep -E "fdroid|AndroidRuntime|FATAL|ActivityTaskManager" | tail -n 40; echo ==LAYOS-APPLOG-END=='
+    sleep 15
     PIDV="$(val LAYOS_PID)"; FOCUS="$(val LAYOS_FOCUS)"; UITEXT="$(val LAYOS_UI)"
     [[ "$PIDV" =~ ^[0-9]+ ]] && APP_OK=1
   fi
+  ADBPROPS="$(val LAYOS_ADBPROPS)"
+  APPLOG="$(sed -n '/^==LAYOS-APPLOG-BEGIN==/,/^==LAYOS-APPLOG-END==/p' "$LOG" | tr -d '\r' | tail -n 45)"
 fi
 
-# --- adb (para depurar pelo Android Studio no futuro) ---
+# --- adb (para depurar pelo Android Studio no futuro): tenta reconectar algumas vezes ---
 HAVE_ADB=0; command -v adb >/dev/null 2>&1 && HAVE_ADB=1
 ADB_STATE="n/d"; ADB_SH="n/d"; ADB_OK=0
 if (( HAVE_ADB && BOOTED )); then
-  adb connect "$SERIAL" >/dev/null 2>&1
-  ADB_STATE="$(ADB_T=15 adbx get-state)"
+  for _ in $(seq 1 8); do
+    adb disconnect "$SERIAL" >/dev/null 2>&1
+    adb kill-server >/dev/null 2>&1
+    adb connect "$SERIAL" >/dev/null 2>&1
+    sleep 3
+    ADB_STATE="$(ADB_T=15 adbx get-state)"
+    [[ "$ADB_STATE" == "device" ]] && break
+    sleep 5
+  done
   ADB_SH="$(ADB_T=20 adbx shell getprop sys.boot_completed)"
   [[ "$ADB_SH" == "1" ]] && ADB_OK=1
 fi
@@ -159,10 +176,11 @@ REASON="fim do teste em ${BOOT_WALL}s sem boot completo"; (( BOOTED )) && REASON
 echo "== Diagnostico =="
 echo "$ACCEL | $REASON | ultimo log: ${GUEST:-?}s"
 echo "Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
+echo "am start: ${AM_OUT:-n/d}"
 echo "PID do app: ${PIDV:-n/d}"
 echo "Foco da janela: ${FOCUS:-n/d}"
 echo "Textos na tela do app: ${UITEXT:-n/d}"
-echo "adb: estado=$ADB_STATE shell=$ADB_SH"
+echo "adb: estado=$ADB_STATE shell=$ADB_SH | props: ${ADBPROPS:-n/d}"
 
 {
   echo "### Lay-Android: boot do Android + instalacao de APK"
@@ -175,16 +193,20 @@ echo "adb: estado=$ADB_STATE shell=$ADB_SH"
   echo "- $ACCEL"
   echo "- $REASON (ultimo log do kernel: ${GUEST:-?}s)"
   echo "- Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
+  echo "- am start: ${AM_OUT:-n/d}"
   echo "- adb: estado=\`$ADB_STATE\` | resposta do shell=\`$ADB_SH\`"
+  echo "- Propriedades adb do Android: ${ADBPROPS:-n/d}"
   echo ""
   if (( INST_OK )); then
-    echo "<details open><summary>App aberto: PID, janela em foco e textos na tela</summary>"
+    echo "<details open><summary>App: PID, janela em foco, textos na tela e log</summary>"
     echo ""
     echo '```'
     echo "PID: ${PIDV:-n/d}"
     echo "${FOCUS:-}"
     echo "---"
     echo "${UITEXT:-sem textos}"
+    echo "--- logcat (fdroid / AndroidRuntime / FATAL) ---"
+    echo "${APPLOG:-sem dados}"
     echo '```'
     echo "</details>"
     echo ""
