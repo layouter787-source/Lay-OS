@@ -62,7 +62,8 @@ done
 BOOT_WALL=$((SECONDS - START))
 
 REL=""; SDK=""; MODEL=""; WM=""; PKGS=0
-INST_OK=0; APP_OK=0; INSTALL_OUT=""; AM_OUT=""; PIDV=""; FOCUS=""; UITEXT=""; APPLOG=""; ADBPROPS=""
+INST_OK=0; APP_OK=0; INSTALL_OUT=""; RES=""; AM_OUT=""; PIDV=""; FOCUS=""; RESUMED=""; LAYERS=""
+APPLOG=""; PKGINFO=""; ADBPROPS=""
 if (( BOOTED )); then
   ser 'echo LAYOS_REL=$(getprop ro.build.version.release)'
   ser 'echo LAYOS_SDK=$(getprop ro.build.version.sdk)'
@@ -80,7 +81,8 @@ if (( BOOTED )); then
     sleep 4
   done
 
-  # propriedades do adb dentro do Android
+  # adb por TCP: o vendor/etc/init/layos-adb.rc ja faz isto; repetimos aqui por garantia
+  ser 'setprop service.adb.tcp.port 5555; setprop ctl.restart adbd'
   ser 'echo LAYOS_ADBPROPS=$(getprop | grep -i adb | tr "\n" " ")'
 
   # instala o APK que foi colocado em /data/local/tmp/test.apk na imagem
@@ -90,26 +92,33 @@ if (( BOOTED )); then
   grep -q 'Success' <<<"$INSTALL_OUT" && INST_OK=1
 
   if (( INST_OK )); then
-    # abre o app pela intent LAUNCHER do proprio pacote
-    ser "echo LAYOS_AM=\$(am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $APK_PKG 2>&1 | tr '\\n' ' ')"
+    # 'am start -a MAIN -c LAUNCHER' nao resolve apps cujo filtro nao tem CATEGORY_DEFAULT;
+    # por isso descobrimos o componente com resolve-activity e abrimos com 'am start -n'.
+    ser "echo LAYOS_RES=\$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $APK_PKG 2>&1 | tail -n 1)"
+    wait_val LAYOS_RES 60
+    RES="$(val LAYOS_RES)"
+    if [[ "$RES" == */* ]]; then
+      ser "echo LAYOS_AM=\$(am start -n $RES 2>&1 | tr '\\n' ' ')"
+    else
+      ser "echo LAYOS_AM=\$(am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -p $APK_PKG 2>&1 | tr '\\n' ' ')"
+    fi
     wait_val LAYOS_AM 90
     AM_OUT="$(val LAYOS_AM)"
-    sleep 25
+    sleep 30
     ser "echo LAYOS_PID=\$(pidof $APK_PKG)"
     ser 'echo LAYOS_FOCUS=$(dumpsys window | grep -m1 mCurrentFocus)'
-    UICMD=$(cat <<'EOS'
-uiautomator dump /sdcard/ui.xml >/dev/null 2>&1; echo LAYOS_UI=$(grep -o 'text="[^"]\+"' /sdcard/ui.xml | head -n 12 | tr '\n' '|')
-EOS
-)
-    ser "$UICMD"
-    wait_val LAYOS_UI 60
+    ser 'echo LAYOS_RESUMED=$(dumpsys activity activities | grep -m1 -E "topResumedActivity|mResumedActivity")'
+    ser "echo LAYOS_LAYERS=\$(dumpsys SurfaceFlinger --list | grep -i fdroid | tr '\\n' ' ')"
+    ser "echo ==LAYOS-PKGINFO-BEGIN==; dumpsys package $APK_PKG | grep -E 'versionName|primaryCpuAbi|MAIN|LAUNCHER|Activity|enabled=|stopped=' | head -n 25; echo ==LAYOS-PKGINFO-END=="
     ser 'echo ==LAYOS-APPLOG-BEGIN==; logcat -d -b all -t 1500 | grep -E "fdroid|AndroidRuntime|FATAL|ActivityTaskManager" | tail -n 40; echo ==LAYOS-APPLOG-END=='
+    wait_val LAYOS_LAYERS 30
     sleep 15
-    PIDV="$(val LAYOS_PID)"; FOCUS="$(val LAYOS_FOCUS)"; UITEXT="$(val LAYOS_UI)"
+    PIDV="$(val LAYOS_PID)"; FOCUS="$(val LAYOS_FOCUS)"; RESUMED="$(val LAYOS_RESUMED)"; LAYERS="$(val LAYOS_LAYERS)"
     [[ "$PIDV" =~ ^[0-9]+ ]] && APP_OK=1
   fi
   ADBPROPS="$(val LAYOS_ADBPROPS)"
   APPLOG="$(sed -n '/^==LAYOS-APPLOG-BEGIN==/,/^==LAYOS-APPLOG-END==/p' "$LOG" | tr -d '\r' | tail -n 45)"
+  PKGINFO="$(sed -n '/^==LAYOS-PKGINFO-BEGIN==/,/^==LAYOS-PKGINFO-END==/p' "$LOG" | tr -d '\r' | tail -n 30)"
 fi
 
 # --- adb (para depurar pelo Android Studio no futuro): tenta reconectar algumas vezes ---
@@ -176,10 +185,11 @@ REASON="fim do teste em ${BOOT_WALL}s sem boot completo"; (( BOOTED )) && REASON
 echo "== Diagnostico =="
 echo "$ACCEL | $REASON | ultimo log: ${GUEST:-?}s"
 echo "Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
-echo "am start: ${AM_OUT:-n/d}"
+echo "Componente: ${RES:-n/d} | am start: ${AM_OUT:-n/d}"
 echo "PID do app: ${PIDV:-n/d}"
 echo "Foco da janela: ${FOCUS:-n/d}"
-echo "Textos na tela do app: ${UITEXT:-n/d}"
+echo "Atividade em primeiro plano: ${RESUMED:-n/d}"
+echo "Camadas do SurfaceFlinger (fdroid): ${LAYERS:-nenhuma}"
 echo "adb: estado=$ADB_STATE shell=$ADB_SH | props: ${ADBPROPS:-n/d}"
 
 {
@@ -193,18 +203,20 @@ echo "adb: estado=$ADB_STATE shell=$ADB_SH | props: ${ADBPROPS:-n/d}"
   echo "- $ACCEL"
   echo "- $REASON (ultimo log do kernel: ${GUEST:-?}s)"
   echo "- Instalacao do APK: ${INSTALL_OUT:-nao tentada}"
-  echo "- am start: ${AM_OUT:-n/d}"
+  echo "- Componente do app: \`${RES:-n/d}\` | am start: ${AM_OUT:-n/d}"
+  echo "- Camadas de tela (SurfaceFlinger) do app: ${LAYERS:-nenhuma}"
+  echo "- Atividade em primeiro plano: ${RESUMED:-n/d}"
   echo "- adb: estado=\`$ADB_STATE\` | resposta do shell=\`$ADB_SH\`"
   echo "- Propriedades adb do Android: ${ADBPROPS:-n/d}"
   echo ""
   if (( INST_OK )); then
-    echo "<details open><summary>App: PID, janela em foco, textos na tela e log</summary>"
+    echo "<details open><summary>App: PID, janela em foco e log</summary>"
     echo ""
     echo '```'
     echo "PID: ${PIDV:-n/d}"
     echo "${FOCUS:-}"
-    echo "---"
-    echo "${UITEXT:-sem textos}"
+    echo "--- dumpsys package ---"
+    echo "${PKGINFO:-sem dados}"
     echo "--- logcat (fdroid / AndroidRuntime / FATAL) ---"
     echo "${APPLOG:-sem dados}"
     echo '```'

@@ -2,7 +2,8 @@
 # Cria out/android.img (ext4) a partir de out/android-rootfs.
 # Tambem coloca na imagem:
 #  - um APK de teste em /data/local/tmp/test.apk (instalado pelo shell do Android, sem adb);
-#  - a chave publica do adb do host em /data/misc/adb/adb_keys (o adbd aceita o host sem pedir autorizacao).
+#  - a chave publica do adb do host em /data/misc/adb/adb_keys;
+#  - um script de init (vendor/etc/init/layos-adb.rc) que liga o adb por TCP (porta 5555) apos o boot.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -24,7 +25,7 @@ else
   echo "AVISO: nao foi possivel baixar o APK de teste ($APK_URL)" >&2
 fi
 
-# Chave do adb do host: o adbd do Android passa a confiar nesta maquina (evita o estado 'offline')
+# Chave do adb do host: o adbd do Android passa a confiar nesta maquina
 if command -v adb >/dev/null 2>&1; then
   mkdir -p "$HOME/.android"
   [[ -f "$HOME/.android/adbkey" ]] || adb keygen "$HOME/.android/adbkey" || true
@@ -37,6 +38,19 @@ if command -v adb >/dev/null 2>&1; then
     echo ">> chave do adb do host instalada em /data/misc/adb/adb_keys"
   fi
 fi
+
+# adb por TCP: sem service.adb.tcp.port o adbd so escuta em USB, e o QEMU aceita a conexao
+# do host mesmo assim (o adb entao mostra 'device offline').
+sudo mkdir -p "$RFS/vendor/etc/init"
+sudo tee "$RFS/vendor/etc/init/layos-adb.rc" >/dev/null <<'EOF'
+on property:sys.boot_completed=1
+    setprop service.adb.tcp.port 5555
+    setprop persist.adb.tcp.port 5555
+    stop adbd
+    start adbd
+EOF
+sudo chmod 644 "$RFS/vendor/etc/init/layos-adb.rc"
+echo ">> adb por TCP (5555) ativado apos o boot via vendor/etc/init/layos-adb.rc"
 
 USED_MB="$(sudo du -sm "$RFS" | cut -f1)"
 SIZE_MB=$(( USED_MB * 13 / 10 + 512 ))
