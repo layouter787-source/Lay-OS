@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lay-Android, etapas 2 e 3: inicia o Android sobre o kernel do Lay-OS, confirma o boot,
-# instala um APK de verdade e abre o app.
+# instala um APK de verdade, abre o app e captura a tela.
 # O controle e feito pelo SHELL DO ANDROID na porta serial (console:/ $), que e mais confiavel que adb;
 # o adb e testado a parte, para o objetivo de depurar pelo Android Studio.
 # Retorna erro apenas se o init do Android nem chegou a rodar.
@@ -39,6 +39,7 @@ ser()  { printf '%s\n' "$1" >&3; }
 val()  { grep -a "^$1=" "$LOG" | tail -n1 | cut -d= -f2- | tr -d '\r'; }
 have() { grep -aq "^$1=" "$LOG"; }
 wait_val() { local t=$SECONDS; while (( SECONDS - t < $2 )); do have "$1" && return 0; sleep 2; done; return 1; }
+wait_line() { local t=$SECONDS; while (( SECONDS - t < $2 )); do grep -aq "^$1" "$LOG" && return 0; sleep 3; done; return 1; }
 
 DIAGCMD='echo ==LAYOS-DIAG-BEGIN==; getprop | grep -E "init.svc|sys.boot|vold|ro.crypto|bootcomplete"; echo ==LAYOS-PS==; ps -A | head -n 80; echo ==LAYOS-KEYLOG==; logcat -d -b all -t 800 | grep -E "FATAL|AndroidRuntime|SystemServer|Zygote|PackageManager|ActivityManager|Watchdog|dex2oat|died|crash|Exception" | tail -n 80; echo ==LAYOS-LOGCAT==; logcat -d -t 100; echo ==LAYOS-DIAG-END=='
 SENT1=0; SENT2=0; SENT3=0
@@ -62,8 +63,8 @@ done
 BOOT_WALL=$((SECONDS - START))
 
 REL=""; SDK=""; MODEL=""; WM=""; PKGS=0
-INST_OK=0; APP_OK=0; INSTALL_OUT=""; RES=""; AM_OUT=""; PIDV=""; FOCUS=""; RESUMED=""; LAYERS=""
-APPLOG=""; PKGINFO=""; ADBPROPS=""
+INST_OK=0; APP_OK=0; SHOT_OK=0; INSTALL_OUT=""; RES=""; AM_OUT=""; PIDV=""; FOCUS=""; RESUMED=""; LAYERS=""
+APPLOG=""; PKGINFO=""; ADBPROPS=""; SHOTSIZE=""; ADBDIAG=""
 if (( BOOTED )); then
   ser 'echo LAYOS_REL=$(getprop ro.build.version.release)'
   ser 'echo LAYOS_SDK=$(getprop ro.build.version.sdk)'
@@ -81,10 +82,6 @@ if (( BOOTED )); then
     sleep 4
   done
 
-  # adb por TCP: o vendor/etc/init/layos-adb.rc ja faz isto; repetimos aqui por garantia
-  ser 'setprop service.adb.tcp.port 5555; setprop ctl.restart adbd'
-  ser 'echo LAYOS_ADBPROPS=$(getprop | grep -i adb | tr "\n" " ")'
-
   # instala o APK que foi colocado em /data/local/tmp/test.apk na imagem
   ser "echo LAYOS_INST=\$(pm install -r /data/local/tmp/test.apk 2>&1 | tr '\\n' ' ')"
   wait_val LAYOS_INST 180
@@ -92,6 +89,9 @@ if (( BOOTED )); then
   grep -q 'Success' <<<"$INSTALL_OUT" && INST_OK=1
 
   if (( INST_OK )); then
+    # concede a permissao de notificacoes antes (senao o Android abre uma caixa de dialogo por cima do app)
+    ser "pm grant $APK_PKG android.permission.POST_NOTIFICATIONS >/dev/null 2>&1"
+    sleep 2
     # 'am start -a MAIN -c LAUNCHER' nao resolve apps cujo filtro nao tem CATEGORY_DEFAULT;
     # por isso descobrimos o componente com resolve-activity e abrimos com 'am start -n'.
     ser "echo LAYOS_RES=\$(cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER $APK_PKG 2>&1 | tail -n 1)"
@@ -109,14 +109,32 @@ if (( BOOTED )); then
     ser 'echo LAYOS_FOCUS=$(dumpsys window | grep -m1 mCurrentFocus)'
     ser 'echo LAYOS_RESUMED=$(dumpsys activity activities | grep -m1 -E "topResumedActivity|mResumedActivity")'
     ser "echo LAYOS_LAYERS=\$(dumpsys SurfaceFlinger --list | grep -i fdroid | tr '\\n' ' ')"
+    wait_val LAYOS_LAYERS 30
+    sleep 3
+
+    # captura de tela (nativo, nao precisa de Java): vira texto base64 na serial e e decodificada no host
+    ser 'screencap -p /data/local/tmp/screen.png 2>&1; echo LAYOS_SHOTSIZE=$(wc -c < /data/local/tmp/screen.png)'
+    wait_val LAYOS_SHOTSIZE 40
+    SHOTSIZE="$(val LAYOS_SHOTSIZE)"
+    ser 'echo ==LAYOS-SHOT-BEGIN==; base64 /data/local/tmp/screen.png; echo ==LAYOS-SHOT-END=='
+    wait_line '==LAYOS-SHOT-END==' 150
+    sed -n '/^==LAYOS-SHOT-BEGIN==/,/^==LAYOS-SHOT-END==/p' "$LOG" | tr -d '\r' | grep -E '^[A-Za-z0-9+/=]+$' > "$ROOT/out/screen.b64.log"
+    base64 -d "$ROOT/out/screen.b64.log" > "$ROOT/out/screen.png" 2>/dev/null || true
+    head -c 8 "$ROOT/out/screen.png" 2>/dev/null | grep -aq 'PNG' && SHOT_OK=1
+
     ser "echo ==LAYOS-PKGINFO-BEGIN==; dumpsys package $APK_PKG | grep -E 'versionName|primaryCpuAbi|MAIN|LAUNCHER|Activity|enabled=|stopped=' | head -n 25; echo ==LAYOS-PKGINFO-END=="
     ser 'echo ==LAYOS-APPLOG-BEGIN==; logcat -d -b all -t 1500 | grep -E "fdroid|AndroidRuntime|FATAL|ActivityTaskManager" | tail -n 40; echo ==LAYOS-APPLOG-END=='
-    wait_val LAYOS_LAYERS 30
     sleep 15
     PIDV="$(val LAYOS_PID)"; FOCUS="$(val LAYOS_FOCUS)"; RESUMED="$(val LAYOS_RESUMED)"; LAYERS="$(val LAYOS_LAYERS)"
     [[ "$PIDV" =~ ^[0-9]+ ]] && APP_OK=1
   fi
+
+  # diagnostico do adbd (esta reiniciando em loop?) e das portas TCP
+  ser 'echo LAYOS_ADBPROPS=$(getprop | grep -i adb | tr "\n" " ")'
+  ser 'echo ==LAYOS-ADBDIAG-BEGIN==; echo svc=$(getprop init.svc.adbd); ps -A | grep -i adbd; (netstat -tln 2>&1 || cat /proc/net/tcp6) | head -n 15; logcat -d -b all | grep -i adbd | tail -n 25; echo ==LAYOS-ADBDIAG-END=='
+  wait_line '==LAYOS-ADBDIAG-END==' 40
   ADBPROPS="$(val LAYOS_ADBPROPS)"
+  ADBDIAG="$(sed -n '/^==LAYOS-ADBDIAG-BEGIN==/,/^==LAYOS-ADBDIAG-END==/p' "$LOG" | tr -d '\r' | tail -n 50)"
   APPLOG="$(sed -n '/^==LAYOS-APPLOG-BEGIN==/,/^==LAYOS-APPLOG-END==/p' "$LOG" | tr -d '\r' | tail -n 45)"
   PKGINFO="$(sed -n '/^==LAYOS-PKGINFO-BEGIN==/,/^==LAYOS-PKGINFO-END==/p' "$LOG" | tr -d '\r' | tail -n 30)"
 fi
@@ -165,6 +183,7 @@ row "$BOOTED" "boot completo (sys.boot_completed=1, lido no shell do Android)"
 row "$(( PKGS > 20 ))" "PackageManager pronto ($PKGS pacotes)"
 row "$INST_OK" "APK instalado no Lay-Android (pm install)"
 row "$APP_OK" "app abriu e esta em execucao ($APK_PKG)"
+row "$SHOT_OK" "captura de tela do app (${SHOTSIZE:-?} bytes) salva em out/screen.png"
 row "$ADB_OK" "adb shell funcional (estado: $ADB_STATE)"
 
 INFO=""
@@ -209,14 +228,21 @@ echo "adb: estado=$ADB_STATE shell=$ADB_SH | props: ${ADBPROPS:-n/d}"
   echo "- adb: estado=\`$ADB_STATE\` | resposta do shell=\`$ADB_SH\`"
   echo "- Propriedades adb do Android: ${ADBPROPS:-n/d}"
   echo ""
+  if (( BOOTED )); then
+    echo "<details open><summary>adbd: estado, portas TCP e log (por que o adb esta offline?)</summary>"
+    echo ""
+    echo '```'
+    echo "${ADBDIAG:-sem dados}"
+    echo '```'
+    echo "</details>"
+    echo ""
+  fi
   if (( INST_OK )); then
-    echo "<details open><summary>App: PID, janela em foco e log</summary>"
+    echo "<details><summary>App: PID, janela em foco e log</summary>"
     echo ""
     echo '```'
     echo "PID: ${PIDV:-n/d}"
     echo "${FOCUS:-}"
-    echo "--- dumpsys package ---"
-    echo "${PKGINFO:-sem dados}"
     echo "--- logcat (fdroid / AndroidRuntime / FATAL) ---"
     echo "${APPLOG:-sem dados}"
     echo '```'
