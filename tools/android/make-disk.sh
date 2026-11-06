@@ -3,7 +3,8 @@
 # Tambem coloca na imagem:
 #  - um APK de teste em /data/local/tmp/test.apk (instalado pelo shell do Android, sem adb);
 #  - a chave publica do adb do host em /data/misc/adb/adb_keys;
-#  - um script de init (vendor/etc/init/layos-adb.rc) que liga o adb por TCP (porta 5555) apos o boot.
+#  - um script de init (vendor/etc/init/layos-adb.rc) que liga o adb por TCP (porta 5555) apos o boot
+#    e garante que a interface eth0 mantenha o IP 10.0.2.15 (o Android pode remove-lo).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -39,18 +40,21 @@ if command -v adb >/dev/null 2>&1; then
   fi
 fi
 
-# adb por TCP: sem service.adb.tcp.port o adbd so escuta em USB, e o QEMU aceita a conexao
-# do host mesmo assim (o adb entao mostra 'device offline').
+# adb por TCP no QEMU: o adbd escuta em [::]:5555, mas o QEMU encaminha para o IPv4 10.0.2.15.
+# Se o Android removeu esse IP da eth0, a conexao do host cai e o adb mostra 'device offline'.
 sudo mkdir -p "$RFS/vendor/etc/init"
 sudo tee "$RFS/vendor/etc/init/layos-adb.rc" >/dev/null <<'EOF'
 on property:sys.boot_completed=1
     setprop service.adb.tcp.port 5555
     setprop persist.adb.tcp.port 5555
+    exec - root root -- /system/bin/ip link set eth0 up
+    exec - root root -- /system/bin/ip addr replace 10.0.2.15/24 dev eth0
+    exec - root root -- /system/bin/ip route replace default via 10.0.2.2 dev eth0
     stop adbd
     start adbd
 EOF
 sudo chmod 644 "$RFS/vendor/etc/init/layos-adb.rc"
-echo ">> adb por TCP (5555) ativado apos o boot via vendor/etc/init/layos-adb.rc"
+echo ">> adb por TCP (5555) + IP da eth0 garantidos apos o boot (vendor/etc/init/layos-adb.rc)"
 
 USED_MB="$(sudo du -sm "$RFS" | cut -f1)"
 SIZE_MB=$(( USED_MB * 13 / 10 + 512 ))
